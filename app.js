@@ -1,0 +1,72 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const mysql = require('mysql2');
+const path = require('path');
+const app = express();
+
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+const db = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: '',
+  database: 'toko'
+});
+
+db.connect((err) => {
+  if (err) throw err;
+  console.log('Connected to MySQL');
+});
+
+app.get('/', (req, res) => {
+  const sqlProduk = `
+  SELECT produk.id, produk.nama, IFNULL(stock.jumlah, 0) AS jumlah_stok
+  FROM produk
+  LEFT JOIN stock ON produk.id = stock.produk_id
+`;
+  const sqlPembelian = 'SELECT * FROM pembelian ORDER BY tanggal DESC';
+
+  db.query(sqlProduk, (err1, produk) => {
+  if (err1) {
+    console.error('Error ambil produk:', err1);
+    return res.send('Gagal mengambil data produk');
+  }
+
+  console.log('Data produk:', produk);
+
+  db.query(sqlPembelian, (err2, pembelian) => {
+    if (err2) {
+      console.error('Error ambil pembelian:', err2);
+      return res.send('Gagal mengambil data pembelian');
+    }
+
+    res.render('index', { produk, pembelian });
+  });
+});
+});
+
+app.post('/beli', (req, res) => {
+  const { produk_id, jumlah } = req.body;
+  db.query('INSERT INTO pembelian (produk_id, jumlah) VALUES (?, ?)', [produk_id, jumlah], () => {
+    db.query('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [jumlah, produk_id], () => {
+      res.redirect('/');
+    });
+  });
+});
+
+app.post('/cancel/:id', (req, res) => {
+  const id = req.params.id;
+  db.query('SELECT * FROM pembelian WHERE id = ?', [id], (err, result) => {
+    const pembelian = result[0];
+    db.query('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id], () => {
+      db.query('DELETE FROM pembelian WHERE id = ?', [id], () => {
+        res.redirect('/');
+      });
+    });
+  });
+});
+
+app.listen(3000, () => console.log('Server berjalan di http://localhost:3000'));
