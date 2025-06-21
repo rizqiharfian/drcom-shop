@@ -18,40 +18,54 @@
   <div class="container">
     <!-- FORM -->
     <div class="card mb-4">
-      <div class="card-header bg-primary text-white">Form Pembelian</div>
-      <div class="card-body">
-        <form method="POST" action="/beli" class="row g-3">
-          <div class="col-md-6">
-            <label for="produk_id" class="form-label">Produk</label>
-            <select name="produk_id" id="produk_id" class="form-select">
-              <option></option>
-              <% produk.forEach(p => { %>
-                <option value="<%= p.id %>"><%= p.nama %> (Stok: <%= p.jumlah_stok %>)</option>
-              <% }) %>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label for="jumlah" class="form-label">Jumlah</label>
-            <input type="number" name="jumlah" id="jumlah" class="form-control" required placeholder="Jumlah">
-          </div>
-          <div class="col-md-2 d-flex align-items-end">
-            <button type="submit" class="btn btn-success w-100">Beli</button>
-          </div>
-        </form>
+  <div class="card-header bg-primary text-white">Form Pembelian</div>
+  <div class="card-body">
+    <form method="POST" action="/beli" class="row g-3">
+      <div class="col-md-4">
+        <label for="customer" class="form-label">Customer</label>
+        <input type="text" name="customer" id="customer" class="form-control" required placeholder="Nama Customer">
       </div>
-    </div>
+      <div class="col-md-4">
+        <label for="produk_id" class="form-label">Produk</label>
+        <select name="produk_id" id="produk_id" class="form-select" required>
+          <option></option>
+          <% produk.forEach(p => { %>
+            <option value="<%= p.id %>"><%= p.nama %> (Stok: <%= p.jumlah_stok %>)</option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label for="jumlah" class="form-label">Jumlah</label>
+        <input type="number" name="jumlah" id="jumlah" class="form-control" required placeholder="Jumlah">
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button type="submit" class="btn btn-success w-100">Beli</button>
+      </div>
+    </form>
+  </div>
+</div>
 
     <!-- RIWAYAT -->
     <div class="card">
-      <div class="card-header bg-secondary text-white">Riwayat Pembelian</div>
+      <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+        <span>Riwayat Pembelian</span>
+        <input type="text" id="searchInput" class="form-control form-control-sm w-50" placeholder="Cari nama produk...">
+      </div>
       <div class="card-body">
         <table class="table table-bordered table-striped">
           <thead>
-            <tr><th>Produk</th><th>Jumlah</th><th>Tanggal</th><th>Aksi</th></tr>
+            <tr>
+              <th class="text-center">Customer</th>
+              <th class="text-center">Produk</th>
+              <th>Jumlah</th>
+              <th class="text-center">Tanggal</th>
+              <th class="text-center">Aksi</th>
+            </tr>
           </thead>
           <tbody>
             <% pembelian.forEach(p => { %>
               <tr>
+                <td><%= p.customer %></td>
                 <td>
                   <% const dataProduk = produk.find(x => x.id === p.produk_id); %>
                   <%= dataProduk?.nama || '-' %>
@@ -109,5 +123,16 @@
       });
     });
   </script>
+  <script>
+  document.getElementById('searchInput').addEventListener('input', function () {
+    const keyword = this.value.toLowerCase();
+    const rows = document.querySelectorAll('table tbody tr');
+
+    rows.forEach(row => {
+      const productName = row.querySelector('td')?.textContent.toLowerCase() || '';
+      row.style.display = productName.includes(keyword) ? '' : 'none';
+    });
+  });
+</script>
 </body>
 </html>
