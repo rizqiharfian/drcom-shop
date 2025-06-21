@@ -31,6 +31,7 @@ app.get('/', (req, res) => {
       IFNULL(stock.jumlah, 0) AS jumlah_stok
     FROM produk
     LEFT JOIN stock ON produk.id = stock.produk_id
+    ORDER BY produk.nama ASC
   `;
   const sqlPembelian = 'SELECT * FROM pembelian ORDER BY tanggal DESC';
 
@@ -52,8 +53,8 @@ app.get('/', (req, res) => {
 
 
 app.post('/beli', (req, res) => {
-  const { produk_id, jumlah } = req.body;
-  db.query('INSERT INTO pembelian (produk_id, jumlah) VALUES (?, ?)', [produk_id, jumlah], () => {
+  const { customer, produk_id, jumlah } = req.body;
+  db.query('INSERT INTO pembelian (customer, produk_id, jumlah) VALUES (?, ?, ?)', [customer, produk_id, jumlah], () => {
     db.query('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [jumlah, produk_id], () => {
       res.redirect('/');
     });
