@@ -5,16 +5,20 @@
   <title>Daftar Produk</title>
   <link rel="icon" href="/drcom.png" type="image/png">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
   <style>
     .produk-img { height: 200px; object-fit: contain; background-color: #f8f9fa; }
     .thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-right:6px; }
+    .card-actions { display: flex; gap: 6px; justify-content: center; }
+    .search-wrap { max-width: 760px; margin: 0 auto 1.2rem; }
+    .brand-filter { margin-bottom: 1rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:center; }
+    .brand-filter .btn { white-space:nowrap; }
   </style>
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
     <div class="container-fluid">
       <a class="navbar-brand" href="/">Manajemen Toko</a>
-
       <div class="d-flex ms-auto">
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalTambahProduk">+ Tambah Produk</button>
         <a class="btn btn-outline-light" href="/">← Kembali</a>
@@ -23,11 +27,34 @@
   </nav>
 
   <div class="container">
-    <h3 class="mb-4 text-center">Daftar Produk</h3>
+    <h3 class="mb-3 text-center">Daftar Produk</h3>
 
-    <div class="row row-cols-1 row-cols-md-3 g-4">
+    <!-- Search -->
+    <div class="search-wrap">
+      <input id="searchInput" type="search" class="form-control form-control-lg" placeholder="Cari produk berdasarkan nama atau keterangan...">
+    </div>
+
+    <!-- Brand filter buttons -->
+    <div class="brand-filter">
+      <button id="brandAll" class="btn btn-sm btn-outline-primary">All</button>
+      <% if (brands && brands.length > 0) { %>
+        <% brands.forEach(b => { %>
+          <button class="btn btn-sm btn-outline-secondary brand-btn" data-brand-id="<%= b.id %>" data-brand-name="<%= (b.name||'').toLowerCase() %>">
+            <%= b.name %>
+          </button>
+        <% }) %>
+      <% } else { %>
+        <small class="text-muted">Belum ada merk (brand).</small>
+      <% } %>
+    </div>
+
+    <div id="produkGrid" class="row row-cols-1 row-cols-md-3 g-4">
       <% produk.forEach(p => { %>
-        <div class="col">
+        <div class="col produk-card"
+             data-nama="<%= (p.nama || '').toLowerCase() %>"
+             data-ket="<%= (p.keterangan || '').toLowerCase() %>"
+             data-brand-id="<%= p.brand_id ?? '' %>"
+             data-brand-name="<%= (p.brand_name || '').toLowerCase() %>">
           <div class="card h-100 text-center shadow-sm">
             <% if (p.gambar_list && p.gambar_list.length > 0) { %>
               <img src="/media/<%= p.gambar_list[0] %>" class="card-img-top produk-img" alt="<%= p.nama %>">
@@ -39,8 +66,24 @@
               <h5 class="card-title"><%= p.nama %></h5>
               <p class="card-text text-muted"><%= p.keterangan || '-' %></p>
             </div>
-            <div class="card-footer bg-light text-muted">
-              Stok: <strong><%= p.jumlah_stok %></strong>
+
+            <div class="card-footer bg-light text-muted d-flex flex-column gap-2">
+              <div>
+                <% if (p.brand_name) { %>
+                  <small class="text-muted">Merk: <strong><%= p.brand_name %></strong></small><br>
+                <% } %>
+                Stok: <strong><%= p.jumlah_stok %></strong>
+              </div>
+              <div class="card-actions">
+                <!-- Lihat (show) -->
+                <a href="/produk/<%= p.id %>" class="btn btn-sm btn-outline-primary" title="Lihat Produk">
+                  <i class="bi bi-eye"></i>
+                </a>
+                <!-- Edit -->
+                <a href="/produk/<%= p.id %>/edit" class="btn btn-sm btn-outline-warning" title="Edit Produk">
+                  <i class="bi bi-pencil"></i>
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -48,53 +91,65 @@
     </div>
   </div>
 
-  <!-- Modal Tambah Produk -->
-<div class="modal fade" id="modalTambahProduk" tabindex="-1" aria-labelledby="modalTambahProdukLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content">
-      <form id="formTambahProduk" action="/produk" method="POST" enctype="multipart/form-data">
-        <div class="modal-header">
-          <h5 class="modal-title" id="modalTambahProdukLabel">Tambah Produk Baru</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Nama Produk</label>
-            <input type="text" name="nama" class="form-control" required>
+    <!-- Modal Tambah Produk -->
+  <div class="modal fade" id="modalTambahProduk" tabindex="-1" aria-labelledby="modalTambahProdukLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <form id="formTambahProduk" action="/produk" method="POST" enctype="multipart/form-data">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalTambahProdukLabel">Tambah Produk Baru</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Nama Produk</label>
+              <input type="text" name="nama" class="form-control" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Merk (Brand)</label>
+              <select name="brand_id" class="form-select">
+                <option value="">-- Pilih Merk (opsional) --</option>
+                <% (brands || []).forEach(b => { %>
+                  <option value="<%= b.id %>"><%= b.name %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Gambar (boleh beberapa)</label>
+              <input type="file" name="gambar" id="gambarInput" class="form-control" accept="image/*" multiple>
+              <div id="previewThumbs" class="mt-2 d-flex"></div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Keterangan</label>
+              <textarea name="keterangan" class="form-control" rows="3"></textarea>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Stok awal</label>
+              <input type="number" name="stok_awal" class="form-control" min="0" value="0">
+              <div class="form-text">Masukkan jumlah stok awal. Jika produk sudah ada stok, nilai ini akan <strong>ditambahkan</strong> ke stok yang ada.</div>
+            </div>
+
+            <div class="form-text">Catatan: gambar akan disimpan ke folder <code>/media</code>. Jika tidak upload gambar, akan pakai default.</div>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label">Gambar (boleh beberapa)</label>
-            <input type="file" name="gambar" id="gambarInput" class="form-control" accept="image/*" multiple>
-            <div id="previewThumbs" class="mt-2 d-flex"></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan Produk</button>
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Keterangan</label>
-            <textarea name="keterangan" class="form-control" rows="3"></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Stok awal</label>
-            <input type="number" name="stok_awal" class="form-control" min="0" value="0">
-            <div class="form-text">Masukkan jumlah stok awal. Jika produk sudah ada stok, nilai ini akan <strong>ditambahkan</strong> ke stok yang ada.</div>
-          </div>
-
-          <div class="form-text">Catatan: gambar akan disimpan ke folder <code>/media</code>. Jika tidak upload gambar, akan pakai default.</div>
-        </div>
-
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Produk</button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   </div>
-</div>
 
+  <!-- optional: include Bootstrap JS + icons (already included in head) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
   <script>
-    // preview thumbnails
+    // preview thumbnails for new product
     document.getElementById('gambarInput').addEventListener('change', function(e){
       const preview = document.getElementById('previewThumbs');
       preview.innerHTML = '';
@@ -105,6 +160,72 @@
         img.className = 'thumb';
         preview.appendChild(img);
       });
+    });
+
+    // SEARCH + BRAND FILTER (client-side)
+    const input = document.getElementById('searchInput');
+    const brandButtons = Array.from(document.querySelectorAll('.brand-btn'));
+    const btnAll = document.getElementById('brandAll');
+    let activeBrandId = null; // currently selected brand id (string or null)
+
+    // helper: apply combined filter
+    function applyFilters() {
+      const q = (input.value || '').trim().toLowerCase();
+      const cards = document.querySelectorAll('.produk-card');
+      cards.forEach(c => {
+        const nama = c.dataset.nama || '';
+        const ket = c.dataset.ket || '';
+        const brandId = (c.dataset.brandId || '').toString();
+        const brandName = (c.dataset.brandName || '').toLowerCase();
+
+        const matchesSearch = !q || nama.includes(q) || ket.includes(q) || brandName.includes(q);
+        const matchesBrand = !activeBrandId || (brandId && brandId === activeBrandId);
+
+        c.style.display = (matchesSearch && matchesBrand) ? '' : 'none';
+      });
+    }
+
+    input.addEventListener('input', applyFilters);
+
+    // brand buttons
+    brandButtons.forEach(b => {
+      b.addEventListener('click', function(){
+        // toggle: clicking same brand unselects it
+        const bid = this.dataset.brandId?.toString();
+        if (activeBrandId === bid) {
+          activeBrandId = null;
+          btnAll.classList.remove('btn-outline-primary'); btnAll.classList.add('btn-outline-primary');
+          brandButtons.forEach(x => { x.classList.remove('btn-primary'); x.classList.add('btn-outline-secondary'); });
+        } else {
+          activeBrandId = bid;
+          brandButtons.forEach(x => { x.classList.remove('btn-primary'); x.classList.add('btn-outline-secondary'); });
+          this.classList.remove('btn-outline-secondary'); this.classList.add('btn-primary');
+          btnAll.classList.remove('btn-primary'); btnAll.classList.add('btn-outline-primary');
+        }
+        applyFilters();
+      });
+    });
+
+    btnAll.addEventListener('click', function(){
+      activeBrandId = null;
+      brandButtons.forEach(x => { x.classList.remove('btn-primary'); x.classList.add('btn-outline-secondary'); });
+      btnAll.classList.remove('btn-outline-primary'); btnAll.classList.add('btn-primary');
+      applyFilters();
+      // restore btnAll style after short delay (to keep visual consistent)
+      setTimeout(()=>{ btnAll.classList.remove('btn-primary'); btnAll.classList.add('btn-outline-primary'); }, 700);
+    });
+
+    // init: no brand selected
+    btnAll.classList.add('btn-outline-primary');
+    brandButtons.forEach(x => x.classList.add('btn-outline-secondary'));
+
+    // keyboard UX: Enter focuses first visible product
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = document.querySelector('.produk-card:not([style*="display: none"]) a.btn');
+        if (first) first.focus();
+      }
     });
   </script>
 </body>

@@ -180,12 +180,13 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 
-// POST /produk => simpan produk + stok_awal
+// ==== POST /produk -> tambah produk + gambar + stok_awal ====
 app.post('/produk', upload.array('gambar', 6), async (req, res) => {
   try {
     const nama = (req.body.nama || '').trim();
     const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
     const stokAwal = parseInt(req.body.stok_awal, 10) || 0;
+    const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
 
     if (!nama) return res.status(400).send('Nama produk wajib diisi.');
 
@@ -198,14 +199,16 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
     }
 
     // insert produk
-    const ins = await q('INSERT INTO produk (nama, gambar, keterangan) VALUES (?, ?, ?)', [nama, gambarField, keterangan]);
+    const ins = await q('INSERT INTO produk (nama, gambar, keterangan, brand_id) VALUES (?, ?, ?, ?)', [nama, gambarField, keterangan, brand_id]);
     const newId = ins.insertId;
 
-    // insert atau update stock: tambahkan stokAwal jika row sudah ada
-    await q(
-      'INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)',
-      [newId, stokAwal]
-    );
+    // insert atau update stock: tambahkan stokAwal jika >0
+    if (stokAwal > 0) {
+      await q(
+        'INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)',
+        [newId, stokAwal]
+      );
+    }
 
     return res.redirect('/produk');
   } catch (err) {
@@ -214,55 +217,219 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
   }
 });
 
+// ---- helper: cek apakah tabel/kolom ada ----
+async function columnExists(tableName, columnName) {
+  const sql = `
+    SELECT COUNT(*) AS cnt
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+  `;
+  const rows = await q(sql, [tableName, columnName]);
+  return rows && rows.length && rows[0].cnt > 0;
+}
 
-// ---------- PRODUK PAGE ----------
+// ---- GET /produk (list) - robust terhadap brand.name vs brand.nama ----
 app.get('/produk', async (req, res) => {
   try {
-    const sql = `
+    // cek terlebih dulu apakah tabel brand ada dan kolom apa yang tersedia
+    const brandTableExists = (await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'"))[0].cnt > 0;
+    let brandColumn = null;
+    if (brandTableExists) {
+      if (await columnExists('brand', 'name')) brandColumn = 'name';
+      else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
+    }
+
+    // bangun SQL dinamis
+    let sql = `
       SELECT produk.*, IFNULL(stock.jumlah, 0) AS jumlah_stok
+      ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
       FROM produk
       LEFT JOIN stock ON produk.id = stock.produk_id
+      ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
+      ORDER BY produk.nama ASC
     `;
     const results = await q(sql);
-    const produk = results.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [] }));
-    res.render('produk', { produk });
+    const produk = results.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [], brand_name: p.brand_name ?? null }));
+    // ambil brands untuk filter (jika ada tabel brand)
+    const brands = brandTableExists ? await q('SELECT id, ' + (brandColumn || 'nama') + ' AS name FROM brand ORDER BY ' + (brandColumn || 'nama') + ' ASC') : [];
+    res.render('produk', { produk, brands });
   } catch (err) {
     console.error('GET /produk error:', err);
     res.status(500).send('Gagal mengambil data produk.');
   }
 });
 
-// ---------- UTILITY: parse items dari dua format ----------
-function parseItemsFromBody(body) {
-  // prefer body.items JSON if ada
-  if (body.items) {
-    try {
-      const parsed = JSON.parse(body.items);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) {
-      throw new Error('Format items JSON invalid');
+// ---- GET /produk/:id (show) - robust terhadap brand column name ----
+app.get('/produk/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(404).send('Produk tidak ditemukan.');
+
+    // cek brand kolom seperti di atas
+    const brandTableExists = (await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'"))[0].cnt > 0;
+    let brandColumn = null;
+    if (brandTableExists) {
+      if (await columnExists('brand', 'name')) brandColumn = 'name';
+      else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
     }
+
+    const sql = `
+      SELECT produk.*, IFNULL(stock.jumlah,0) AS jumlah_stok
+      ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
+      FROM produk
+      LEFT JOIN stock ON produk.id = stock.produk_id
+      ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
+      WHERE produk.id = ? LIMIT 1
+    `;
+    const rows = await q(sql, [id]);
+    if (!rows || rows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
+
+    const p = rows[0];
+    p.gambar_list = p.gambar ? p.gambar.split(',') : [];
+    // pastikan brand_name tersedia (atau null)
+    p.brand_name = p.brand_name ?? null;
+
+    // juga ambil stok saat ini supaya edit view bisa tampilkan
+    const stokRows = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [id]);
+    const stok = (stokRows && stokRows.length > 0) ? stokRows[0].jumlah : 0;
+
+    res.render('produk_show', { p, stok, brands: brandTableExists ? await q('SELECT id, ' + (brandColumn || 'nama') + ' AS name FROM brand ORDER BY ' + (brandColumn || 'nama') + ' ASC') : [] });
+  } catch (err) {
+    console.error('GET /produk/:id error:', err);
+    res.status(500).send('Server error.');
   }
+});
 
-  // fallback: produk[], jumlah[], keterangan[] (form inputs)
-  // note: names could be 'produk[]' or 'produk' depending on how the form submitted
-  const produkArr = body['produk[]'] ?? body.produk ?? [];
-  const jumlahArr = body['jumlah[]'] ?? body.jumlah ?? [];
-  const ketArr = body['keterangan[]'] ?? body.keterangan ?? [];
+// ==== GET /produk/:id/edit (robust terhadap brand.name vs brand.nama) ====
+app.get('/produk/:id/edit', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(404).send('Produk tidak ditemukan.');
 
-  const pList = Array.isArray(produkArr) ? produkArr : (produkArr ? [produkArr] : []);
-  const jList = Array.isArray(jumlahArr) ? jumlahArr : (jumlahArr ? [jumlahArr] : []);
-  const kList = Array.isArray(ketArr) ? ketArr : (ketArr ? [ketArr] : []);
+    const pRows = await q('SELECT * FROM produk WHERE id = ? LIMIT 1', [id]);
+    if (!pRows || pRows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
 
-  const items = [];
-  for (let i = 0; i < pList.length; i++) {
-    const pid = pList[i];
-    const qty = jList[i];
-    const ket = kList[i] ?? null;
-    if (pid && qty) items.push({ produk_id: pid, jumlah: qty, keterangan: ket });
+    // ambil brands dengan deteksi kolom (name atau nama)
+    let brands = [];
+    try {
+      // cek apakah tabel brand ada
+      const tbl = await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'");
+      const brandTableExists = tbl && tbl.length && tbl[0].cnt > 0;
+      if (brandTableExists) {
+        let brandColumn = null;
+        if (await columnExists('brand', 'name')) brandColumn = 'name';
+        else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
+
+        if (brandColumn) {
+          brands = await q(`SELECT id, ${brandColumn} AS name FROM brand ORDER BY ${brandColumn} ASC`);
+        } else {
+          // brand table exists but kolom tidak standar -> ambil semua kolom dan coba pilih satu
+          const raw = await q('SELECT * FROM brand LIMIT 1');
+          if (raw && raw.length > 0) {
+            // pilih kolom kedua yang bukan id sebagai label (fallback)
+            const keys = Object.keys(raw[0]).filter(k => k !== 'id');
+            if (keys.length > 0) {
+              const col = keys[0];
+              brands = await q(`SELECT id, ${col} AS name FROM brand ORDER BY ${col} ASC`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Warn: gagal ambil brands (jalan fallback):', e && e.message);
+      brands = [];
+    }
+
+    const p = pRows[0];
+    p.gambar_list = p.gambar ? p.gambar.split(',') : [];
+
+    // ambil stok
+    const s = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [id]);
+    const stok = (s && s.length > 0) ? s[0].jumlah : 0;
+
+    res.render('produk_edit', { p, brands, stok });
+  } catch (err) {
+    console.error('GET /produk/:id/edit error:', err);
+    res.status(500).send('Server error.');
   }
-  return items;
-}
+});
+
+// ---------- PRODUK: UPDATE ----------
+/**
+ * Form edit mengirim multipart/form-data dengan:
+ * - name, keterangan
+ * - gambar (file[] optional) -> field name 'gambar'
+ * - stok_adjust (opsional, integer positif/negatif) atau stok_set (opsional) 
+ *
+ * Jika upload gambar, file baru akan ditambahkan (append) ke field produk.gambar.
+ * Jika stok_adjust diberikan, jumlah di table stock akan diubah (+/-).
+ */
+// ==== POST /produk/:id (update produk) ====
+app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(404).send('Produk tidak ditemukan.');
+
+    const nama = (req.body.nama || '').trim();
+    const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
+    const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
+    // stok_change: angka positif menambah, negatif mengurangi
+    const stokChange = req.body.stok_change ? parseInt(req.body.stok_change, 10) : 0;
+
+    if (!nama) return res.status(400).send('Nama produk wajib diisi.');
+
+    // ambil current produk
+    const curRows = await q('SELECT gambar FROM produk WHERE id = ? LIMIT 1', [id]);
+    if (!curRows || curRows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
+
+    let currentGambar = curRows[0].gambar || '';
+    // jika ada upload baru, gabungkan
+    if (req.files && req.files.length > 0) {
+      const newFiles = req.files.map(f => f.filename).join(',');
+      currentGambar = currentGambar ? (currentGambar + ',' + newFiles) : newFiles;
+    }
+
+    // update produk
+    await q('UPDATE produk SET nama = ?, keterangan = ?, gambar = ?, brand_id = ? WHERE id = ?', [nama, keterangan, currentGambar, brand_id, id]);
+
+    // update stock jika ada perubahan stok
+    if (stokChange !== 0) {
+      if (stokChange > 0) {
+        await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)', [id, stokChange]);
+      } else {
+        // negative change - subtract
+        const abs = Math.abs(stokChange);
+        // pastikan tidak jadi negatif
+        const r = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [id]);
+        const cur = (r && r.length > 0) ? r[0].jumlah : 0;
+        const newVal = Math.max(0, cur - abs);
+        await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = ?', [id, newVal, newVal]);
+      }
+    }
+
+    return res.redirect('/produk/' + id);
+  } catch (err) {
+    console.error('POST /produk/:id error:', err);
+    return res.status(500).send('Gagal memperbarui produk.');
+  }
+});
+
+
+// add brand (simple)
+app.post('/brands', async (req, res) => {
+  try {
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).send('Nama brand kosong.');
+    // insert jika belum ada (gunakan INSERT IGNORE atau cek dulu)
+    const existing = await q('SELECT id FROM brand WHERE LOWER(name)=LOWER(?) LIMIT 1', [name]);
+    if (existing && existing.length) return res.json({ id: existing[0].id, name });
+    const r = await q('INSERT INTO brand (name) VALUES (?)', [name]);
+    res.json({ id: r.insertId, name });
+  } catch (err) {
+    console.error('POST /brands error:', err);
+    res.status(500).send('Gagal menambah brand.');
+  }
+});
 
 // ---------- BARANG MASUK ----------
 app.get('/barang-masuk', async (req, res) => {
@@ -391,21 +558,20 @@ app.get('/barang-masuk/:id', async (req, res) => {
     if (!bmRows || bmRows.length === 0) return res.status(404).send('Barang masuk tidak ditemukan');
     const bm = bmRows[0];
 
-    // Ambil detail + nama produk + gambar
+    // Ambil detail + nama produk + gambar dari tabel barang_masuk_detail (bukan produk)
     const details = await q(
-      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.keterangan, p.nama, p.gambar
+      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.keterangan, bmd.gambar, p.nama
        FROM barang_masuk_detail bmd
        LEFT JOIN produk p ON bmd.produk_id = p.id
        WHERE bmd.barang_masuk_id = ?`,
       [id]
     );
 
-    // siapkan gambar list untuk tiap product
     const items = details.map(d => ({
       detail_id: d.detail_id,
       produk_id: d.produk_id,
       nama: d.nama,
-      gambar_list: d.gambar ? d.gambar.split(',') : [],
+      gambar_list: d.gambar ? d.gambar.split(',') : [], // bisa banyak gambar
       jumlah: d.jumlah,
       keterangan: d.keterangan
     }));
@@ -566,6 +732,36 @@ app.post('/barang-masuk/:id/edit', async (req, res) => {
   }
 });
 
+// ---------- UTILITY: parse items dari dua format (pakai di barang masuk & keluar) ----------
+function parseItemsFromBody(body) {
+  // prefer body.items JSON if ada
+  if (body.items) {
+    try {
+      const parsed = JSON.parse(body.items);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      throw new Error('Format items JSON invalid');
+    }
+  }
+
+  // fallback: produk[], jumlah[], keterangan[] (form inputs)
+  const produkArr = body['produk[]'] ?? body.produk ?? [];
+  const jumlahArr = body['jumlah[]'] ?? body.jumlah ?? [];
+  const ketArr = body['keterangan[]'] ?? body.keterangan ?? [];
+
+  const pList = Array.isArray(produkArr) ? produkArr : (produkArr ? [produkArr] : []);
+  const jList = Array.isArray(jumlahArr) ? jumlahArr : (jumlahArr ? [jumlahArr] : []);
+  const kList = Array.isArray(ketArr) ? ketArr : (ketArr ? [ketArr] : []);
+
+  const items = [];
+  for (let i = 0; i < pList.length; i++) {
+    const pid = pList[i];
+    const qty = jList[i];
+    const ket = kList[i] ?? null;
+    if (pid && qty) items.push({ produk_id: pid, jumlah: qty, keterangan: ket });
+  }
+  return items;
+}
 
 // ---------- BARANG KELUAR ----------
 app.get('/barang-keluar', async (req, res) => {
