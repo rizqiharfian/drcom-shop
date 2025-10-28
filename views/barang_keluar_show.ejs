@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Detail Barang Keluar #<%= transaksi.id %></title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .item-img { max-width:100%; max-height:120px; object-fit:contain; background:#f8f9fa; }
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3>Detail Barang Keluar</h3>
+      <div>
+        <a class="btn btn-secondary me-2" href="/">Kembali</a>
+        <a class="btn btn-warning" href="/barang-keluar/<%= transaksi.id %>/edit">
+          <i class="bi bi-pencil-square"></i> Edit
+        </a>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <p class="mb-1"><strong>Ref:</strong> <%= transaksi.id %></p>
+        <p class="mb-1"><strong>Tujuan:</strong> <%= transaksi.tujuan %></p>
+        <p class="mb-0"><strong>Tanggal:</strong> <%= transaksi.tanggal ? new Date(transaksi.tanggal).toLocaleString('id-ID') : '-' %></p>
+      </div>
+    </div>
+
+    <h5>Item</h5>
+    <div class="row">
+      <% if (items && items.length > 0) { %>
+        <% items.forEach(it => { %>
+          <div class="col-md-6 mb-3">
+            <div class="card">
+              <div class="row g-0">
+                <div class="col-4 d-flex align-items-center justify-content-center p-2">
+                  <% 
+                    // handle either it.gambar (single) atau it.gambar_list (array)
+                    let imgSrc = null;
+                    if (typeof it.gambar_list !== 'undefined' && it.gambar_list && it.gambar_list.length > 0) {
+                      imgSrc = it.gambar_list[0];
+                    } else if (it.gambar) {
+                      imgSrc = it.gambar;
+                    }
+                  %>
+                  <% if (imgSrc) { %>
+                    <img src="/media/<%= imgSrc %>" class="img-fluid rounded item-img" alt="gambar">
+                  <% } else { %>
+                    <img src="/media/default.jpg" class="img-fluid rounded item-img" alt="no image">
+                  <% } %>
+                </div>
+
+                <div class="col-8">
+                  <div class="card-body">
+                    <h6 class="card-title mb-1"><%= it.nama || ('Produk ID ' + it.produk_id) %></h6>
+                    <p class="mb-1"><strong>Jumlah:</strong> <%= it.jumlah %></p>
+                    <p class="mb-0 text-muted"><strong>Keterangan:</strong> <%= it.keterangan || '-' %></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% }) %>
+      <% } else { %>
+        <div class="col-12">
+          <p class="text-muted">Tidak ada item.</p>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

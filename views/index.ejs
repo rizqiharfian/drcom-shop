@@ -1,138 +1,444 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <title>Admin Pembelian</title>
-  <link rel="icon" href="/drcom.png" type="image/png">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Toko</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+  <style>
+    body { background-color: #f8f9fa; }
+    .navbar-brand { font-weight: bold; }
+    .nav-link.active {
+      font-weight: bold;
+      color: #0d6efd !important;
+      border-bottom: 2px solid #0d6efd;
+    }
+    .produk-img { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; }
+    .table-fixed { table-layout: fixed; word-wrap: break-word; }
+    .pagination { justify-content: center; }
+    .small-muted { font-size: .9rem; color: #6c757d; }
+    .search-bar { max-width: 600px; margin: 0 auto 1.5rem; }
+  </style>
 </head>
-<body class="bg-light">
+<body>
+
+  <!-- Navbar -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="#">Admin Pembelian</a>
-      <a class="btn btn-outline-light ms-auto" href="/produk">Lihat Produk</a>
+    <div class="container">
+      <a class="navbar-brand" href="/">Manajemen Toko</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
+        </ul>
+      </div>
     </div>
   </nav>
 
-  <div class="container">
+  <div class="container mb-5">
+
+    <!-- GLOBAL SEARCH -->
+    <div class="search-bar">
+      <input id="globalSearch" type="search" class="form-control form-control-lg" placeholder="Cari produk / ID / customer / pengirim / tujuan..." />
+    </div>
+
     <!-- FORM -->
     <div class="card mb-4">
-  <div class="card-header bg-primary text-white">Form Pembelian</div>
-  <div class="card-body">
-    <form method="POST" action="/beli" class="row g-3">
-      <div class="col-md-4">
-        <label for="customer" class="form-label">Customer</label>
-        <input type="text" name="customer" id="customer" class="form-control" required placeholder="Nama Customer">
+      <div class="card-header bg-primary text-white">Form Pembelian</div>
+      <div class="card-body">
+        <form method="POST" action="/beli" class="row g-3">
+          <div class="col-md-4">
+            <label for="customer" class="form-label">Customer/Seller</label>
+            <input type="text" name="customer" id="customer" class="form-control" required placeholder="Nama Customer">
+          </div>
+
+          <div class="col-md-4">
+            <label for="produk_id" class="form-label">Produk</label>
+            <!-- searchable select menggunakan Select2 -->
+            <select name="produk_id" id="produk_id" class="form-select" required>
+              <option value=""></option>
+              <% produk.forEach(p => { %>
+                <option value="<%= p.id %>"><%= p.nama %> (Stok: <%= p.jumlah_stok %>)</option>
+              <% }) %>
+            </select>
+          </div>
+
+          <div class="col-md-2">
+            <label for="jumlah" class="form-label">Jumlah</label>
+            <input type="number" name="jumlah" id="jumlah" class="form-control" required placeholder="Jumlah" min="1">
+          </div>
+
+          <div class="col-md-2 d-flex align-items-end">
+            <button type="submit" class="btn btn-success w-100">Beli</button>
+          </div>
+        </form>
       </div>
-      <div class="col-md-4">
-        <label for="produk_id" class="form-label">Produk</label>
-        <select name="produk_id" id="produk_id" class="form-select" required>
-          <option></option>
-          <% produk.forEach(p => { %>
-            <option value="<%= p.id %>"><%= p.nama %> (Stok: <%= p.jumlah_stok %>)</option>
-          <% }) %>
-        </select>
+    </div>
+
+    <!-- ================= Riwayat Pembelian ================= -->
+    <h3 class="text-center mb-3">Riwayat Pembelian Online/COD</h3>
+    <div class="table-responsive mb-2">
+      <table class="table table-bordered table-striped table-fixed">
+        <thead class="table-dark text-center">
+          <tr>
+            <th style="width:60px">No</th>
+            <th>Customer/Seller</th>
+            <th>Produk</th>
+            <th style="width:90px">Jumlah</th>
+            <th style="width:180px">Tanggal</th>
+            <th style="width:110px">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tbPembelian" class="text-center">
+          <% if (pembelian && pembelian.length > 0) { %>
+            <% pembelian.forEach((p, idx) => { 
+                 const prod = produk.find(x => x.id === p.produk_id) || {};
+            %>
+              <tr data-index="<%= idx %>">
+                <td class="row-no"></td>
+                <td class="cell-customer"><%= p.customer %></td>
+                <td class="cell-produk text-start"><%= prod.nama || p.produk_id %></td>
+                <td class="cell-jumlah"><%= p.jumlah %></td>
+                <td class="cell-tanggal"><%= new Date(p.tanggal).toLocaleString('id-ID') %></td>
+                <td>
+                  <div class="d-flex justify-content-center gap-1">
+                    <!-- Tombol Lihat Produk (ikon mata) -->
+                    <button type="button"
+                      class="btn btn-outline-primary btn-sm btnLihatProduk"
+                      data-produk='<%- JSON.stringify(prod) %>'
+                      title="Lihat Produk"
+                      aria-label="Lihat Produk">
+                      <i class="bi bi-eye"></i>
+                    </button>
+
+                    <!-- Tombol Batalkan (ikon tong sampah) -->
+                    <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
+                      <button type="submit" class="btn btn-outline-danger btn-sm" title="Batalkan" aria-label="Batalkan">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } else { %>
+            <tr class="empty"><td colspan="6" class="text-muted">Belum ada pembelian.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <nav><ul id="paginationPembelian" class="pagination"></ul></nav>
+
+    <!-- Modal Detail Produk -->
+<div class="modal fade" id="modalDetailProduk" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title">Detail Produk</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="col-md-2">
-        <label for="jumlah" class="form-label">Jumlah</label>
-        <input type="number" name="jumlah" id="jumlah" class="form-control" required placeholder="Jumlah">
+      <div class="modal-body">
+        <div id="produkDetail" class="text-center">
+          <img id="produkGambar" src="" alt="Gambar Produk" class="img-fluid mb-3 rounded" style="max-height: 250px; object-fit: contain;">
+          <h4 id="produkNama" class="fw-bold"></h4>
+          <p id="produkKeterangan" class="text-muted"></p>
+          <p class="small text-secondary">Stok tersedia: <strong id="produkStok"></strong></p>
+        </div>
       </div>
-      <div class="col-md-2 d-flex align-items-end">
-        <button type="submit" class="btn btn-success w-100">Beli</button>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
       </div>
-    </form>
+    </div>
   </div>
 </div>
 
-    <!-- RIWAYAT -->
-    <div class="card">
-      <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
-        <span>Riwayat Pembelian</span>
-        <input type="text" id="searchInput" class="form-control form-control-sm w-50" placeholder="Cari nama produk...">
-      </div>
-      <div class="card-body">
-        <table class="table table-bordered table-striped">
-          <thead>
-            <tr>
-              <th class="text-center">Customer</th>
-              <th class="text-center">Produk</th>
-              <th>Jumlah</th>
-              <th class="text-center">Tanggal</th>
-              <th class="text-center">Aksi</th>
+    <hr>
+
+    <!-- ================= Riwayat Barang Masuk ================= -->
+    <h3 class="text-center mb-3">Riwayat Barang Masuk</h3>
+    <div class="table-responsive mb-2">
+      <table class="table table-bordered table-striped table-fixed align-middle">
+        <thead class="table-dark text-center">
+          <tr>
+            <th style="width:60px">No</th>
+            <th style="width:60px">Ref</th>
+            <th>Pengirim</th>
+            <th>Produk</th>
+            <th style="width:90px">Jumlah</th>
+            <th>Keterangan</th>
+            <th style="width:180px">Tanggal</th>
+            <th style="width:120px">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tbBM" class="text-center">
+          <% 
+            if (barangMasukList && barangMasukList.length > 0) {
+              barangMasukList.forEach((tx, txIdx) => {
+                const txDate = tx.created_at || tx.tanggal || null;
+                (tx.items || []).forEach((it, itIdx) => {
+          %>
+            <tr data-tx-index="<%= txIdx %>">
+              <td class="row-no"></td>
+              <td class="cell-ref"><%= txIdx + 1 %></td>
+              <td class="cell-pengirim text-start"><%= tx.pengirim %></td>
+              <td class="cell-produk text-start"><%= it.nama || it.produk_id %></td>
+              <td class="cell-jumlah"><%= it.jumlah %></td>
+              <td class="cell-keterangan text-start"><%= it.keterangan || '-' %></td>
+              <td class="cell-tanggal"><%= txDate ? new Date(txDate).toLocaleString('id-ID') : '-' %></td>
+              <td class="cell-aksi text-center">
+                <!-- Tombol lihat -->
+                <a href="/barang-masuk/<%= tx.id %>" 
+                  class="btn btn-sm btn-info me-1" 
+                  title="Lihat Barang Masuk">
+                  <i class="bi bi-eye"></i>
+                </a>
+
+                <!-- Tombol edit -->
+                <a href="/barang-masuk/<%= tx.id %>/edit" 
+                  class="btn btn-sm btn-warning" 
+                  title="Edit Barang Masuk">
+                  <i class="bi bi-pencil-square"></i>
+                </a>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            <% pembelian.forEach(p => { %>
-              <tr>
-                <td><%= p.customer %></td>
-                <td>
-                  <% const dataProduk = produk.find(x => x.id === p.produk_id); %>
-                  <%= dataProduk?.nama || '-' %>
-                  <small class="text-muted d-block">Stok: <%= dataProduk?.jumlah_stok ?? '-' %></small>
-                </td>
-                <td><%= p.jumlah %></td>
-                <td><%= new Date(p.tanggal).toLocaleString() %></td>
-                <td class="d-flex justify-content-center align-items-center gap-2">
-                  <% if (dataProduk) { %>
-                    <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#modalProduk<%= dataProduk.id %>">
-                      Lihat Produk
-                    </button>
-                  <% } %>
-                  <form method="POST" action="/cancel/<%= p.id %>">
-                    <button type="submit" class="btn btn-danger btn-sm">Cancel</button>
-                  </form>
-                </td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
-      </div>
+          <%     });
+              });
+            } else { %>
+            <tr class="empty">
+              <td colspan="8" class="text-muted text-center">Belum ada barang masuk.</td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
     </div>
+    <nav><ul id="paginationBM" class="pagination"></ul></nav>
+
+    <hr>
+
+    <!-- ================= Riwayat Barang Keluar ================= -->
+    <h3 class="text-center mb-3">Riwayat Barang Keluar</h3>
+    <div class="table-responsive mb-2">
+      <table class="table table-bordered table-striped table-fixed">
+        <thead class="table-dark text-center">
+          <tr>
+            <th style="width:60px">No</th>
+            <th style="width:60px">Ref</th>
+            <th>Tujuan</th>
+            <th>Produk</th>
+            <th style="width:90px">Jumlah</th>
+            <th>Keterangan</th>
+            <th style="width:180px">Tanggal</th>
+            <th style="width:120px">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tbBK" class="text-center">
+          <% 
+            if (barangKeluarList && barangKeluarList.length > 0) {
+              barangKeluarList.forEach((tx, txIdx) => {
+                const txDate = tx.created_at || tx.tanggal || null;
+                (tx.items || []).forEach((it, itIdx) => {
+          %>
+            <tr data-tx-index="<%= txIdx %>">
+              <td class="row-no"></td>
+              <td class="cell-ref"><%= txIdx + 1 %></td>
+              <td class="cell-tujuan text-start"><%= tx.tujuan %></td>
+              <td class="cell-produk text-start"><%= it.nama || it.produk_id %></td>
+              <td class="cell-jumlah"><%= it.jumlah %></td>
+              <td class="cell-keterangan text-start"><%= it.keterangan || '-' %></td>
+              <td class="cell-tanggal"><%= txDate ? new Date(txDate).toLocaleString('id-ID') : '-' %></td>
+              <td class="cell-aksi text-center">
+                <!-- Tombol lihat -->
+                <a href="/barang-keluar/<%= tx.id %>" 
+                  class="btn btn-sm btn-info me-1" 
+                  title="Lihat Barang Masuk">
+                  <i class="bi bi-eye"></i>
+                </a>
+
+                <!-- Tombol edit -->
+                <a href="/barang-keluar/edit/<%= tx.id %>" 
+                  class="btn btn-sm btn-warning" 
+                  title="Edit Barang Masuk">
+                  <i class="bi bi-pencil-square"></i>
+                </a>
+              </td>
+            </tr>
+          <%     });
+              });
+            } else { %>
+            <tr class="empty"><td colspan="7" class="text-muted">Belum ada barang keluar.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <nav><ul id="paginationBK" class="pagination"></ul></nav>
+
   </div>
 
-  <!-- MODAL PRODUK -->
-  <% produk.forEach(p => { %>
-    <div class="modal fade" id="modalProduk<%= p.id %>" tabindex="-1" aria-labelledby="modalLabel<%= p.id %>" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="modalLabel<%= p.id %>"><%= p.nama %></h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
-          </div>
-          <div class="modal-body text-center">
-            <img src="/media/<%= p.gambar_list?.[0] || 'default.jpg' %>" class="img-fluid rounded mb-3"
-                 style="max-height: 250px; object-fit: contain; background-color: #f8f9fa;">
-            <p class="text-muted"><%= p.keterangan || 'Tidak ada deskripsi.' %></p>
-            <p><strong>Stok:</strong> <%= p.jumlah_stok %></p>
-          </div>
-        </div>
-      </div>
-    </div>
-  <% }) %>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    $(document).ready(function () {
+    $(document).ready(function() {
+      // Inisialisasi Select2 pada produk_id
       $('#produk_id').select2({
-        placeholder: "Cari produk...",
+        placeholder: 'Cari produk...',
         allowClear: true,
-        width: '100%'
+        width: '100%',
+        // jika produk banyak dan mau server-side search nanti bisa diubah ke AJAX
+        // minimumResultsForSearch: 10 // tunjukkan search hanya ketika > 10 item (opsional)
+      });
+
+      // optional: jika mau fokus search saat membuka dropdown
+      $('#produk_id').on('select2:open', function() {
+        $('.select2-search__field').focus();
       });
     });
   </script>
   <script>
-  document.getElementById('searchInput').addEventListener('input', function () {
-    const keyword = this.value.toLowerCase();
-    const rows = document.querySelectorAll('table tbody tr');
+    // --- Generic pagination that honors data-hidden flag ---
+    function paginateTable(tbodyId, paginationId, perPage = 5) {
+      const tbody = document.getElementById(tbodyId);
+      const pager = document.getElementById(paginationId);
+      if (!tbody || !pager) return;
 
-    rows.forEach(row => {
-      const productName = row.querySelector('td')?.textContent.toLowerCase() || '';
-      row.style.display = productName.includes(keyword) ? '' : 'none';
+      const allRows = Array.from(tbody.querySelectorAll('tr')).filter(r => !r.classList.contains('empty'));
+      const visibleRows = () => allRows.filter(r => r.dataset.hidden !== 'true');
+
+      const totalVisible = () => visibleRows().length;
+      const totalPages = () => Math.max(1, Math.ceil(totalVisible() / perPage));
+
+      function renderPager(current) {
+        pager.innerHTML = '';
+        const makeLi = (label, active, disabled, cb) => {
+          const li = document.createElement('li');
+          li.className = 'page-item ' + (active ? 'active' : '') + (disabled ? ' disabled' : '');
+          const a = document.createElement('a');
+          a.className = 'page-link';
+          a.href = '#';
+          a.textContent = label;
+          a.addEventListener('click', (e) => { e.preventDefault(); if (!disabled) cb(); });
+          li.appendChild(a);
+          return li;
+        };
+
+        const cur = Math.min(Math.max(1, parseInt(pager.dataset.current || 1)), totalPages());
+        pager.appendChild(makeLi('Prev', false, cur === 1, () => showPage(cur - 1)));
+        // simple windowed pages
+        const win = 5;
+        let start = Math.max(1, cur - Math.floor(win/2));
+        let end = Math.min(totalPages(), start + win - 1);
+        if (end - start < win - 1) start = Math.max(1, end - win + 1);
+        for (let i = start; i <= end; i++) {
+          pager.appendChild(makeLi(i, i === cur, false, () => showPage(i)));
+        }
+        pager.appendChild(makeLi('Next', false, cur === totalPages(), () => showPage(cur + 1)));
+      }
+
+      function showPage(page) {
+        const visible = visibleRows();
+        const pages = totalPages();
+        if (page < 1) page = 1;
+        if (page > pages) page = pages;
+        const start = (page - 1) * perPage;
+        const end = start + perPage;
+
+        // hide all rows first
+        allRows.forEach(r => r.style.display = 'none');
+
+        // show only visible slice
+        for (let i = start; i < end && i < visible.length; i++) {
+          visible[i].style.display = '';
+        }
+
+        // update numbering (global order across visible rows)
+        visible.forEach((r, idx) => {
+          const noCell = r.querySelector('.row-no');
+          if (noCell) noCell.textContent = idx + 1;
+        });
+
+        pager.dataset.current = page;
+        renderPager(page);
+      }
+
+      // init
+      showPage(1);
+    }
+
+    // --- GLOBAL SEARCH ---
+    const searchInput = document.getElementById('globalSearch');
+    function applyFilter() {
+      const q = (searchInput.value || '').trim().toLowerCase();
+      // tables to filter
+      const tableBodies = ['tbPembelian','tbBM','tbBK'];
+      tableBodies.forEach(id => {
+        const tbody = document.getElementById(id);
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr')).filter(r => !r.classList.contains('empty'));
+        rows.forEach(r => {
+          // check the row text (only human-readable cells)
+          const text = (r.textContent || '').toLowerCase();
+          if (!q) {
+            r.dataset.hidden = 'false';
+          } else {
+            r.dataset.hidden = text.includes(q) ? 'false' : 'true';
+          }
+        });
+      });
+
+      // re-paginate all tables (perPage = 5)
+      paginateTable('tbPembelian', 'paginationPembelian', 5);
+      paginateTable('tbBM', 'paginationBM', 5);
+      paginateTable('tbBK', 'paginationBK', 5);
+    }
+
+    // debounce helper
+    function debounce(fn, delay = 200) {
+      let t;
+      return (...args) => { clearTimeout(t); t = setTimeout(()=> fn(...args), delay); };
+    }
+
+    searchInput.addEventListener('input', debounce(applyFilter, 200));
+
+    // initialize pagination on load
+    document.addEventListener('DOMContentLoaded', () => {
+      paginateTable('tbPembelian', 'paginationPembelian', 5);
+      paginateTable('tbBM', 'paginationBM', 5);
+      paginateTable('tbBK', 'paginationBK', 5);
     });
+  </script>
+  <script>
+  // --- Modal Lihat Produk ---
+  const modalProduk = new bootstrap.Modal(document.getElementById('modalDetailProduk'));
+  const elGambar = document.getElementById('produkGambar');
+  const elNama = document.getElementById('produkNama');
+  const elKet = document.getElementById('produkKeterangan');
+  const elStok = document.getElementById('produkStok');
+
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('btnLihatProduk')) {
+      const prod = JSON.parse(e.target.dataset.produk || '{}');
+      elNama.textContent = prod.nama || 'Tanpa Nama';
+      elKet.textContent = prod.keterangan || '-';
+      elStok.textContent = prod.jumlah_stok || 0;
+
+      const gambarList = (prod.gambar ? prod.gambar.split(',') : []);
+      elGambar.src = gambarList.length ? `/media/${gambarList[0]}` : '/media/default.jpg';
+      
+      modalProduk.show();
+    }
   });
 </script>
+
 </body>
 </html>

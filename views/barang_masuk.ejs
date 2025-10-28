@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Barang Masuk</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body class="bg-light">
+  <!-- Navbar (sama seperti sebelumnya) -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container">
+      <a class="navbar-brand" href="/">Manajemen Toko</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container mt-5">
+    <h2 class="text-center mb-4">Form Barang Masuk</h2>
+
+    <!-- perubahan: enctype multipart/form-data -->
+    <form action="/barang-masuk" method="POST" id="formMasuk" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label">Nama Pengirim</label>
+        <input type="text" class="form-control" name="pengirim" id="pengirim" required />
+      </div>
+
+      <table class="table table-bordered align-middle text-center" id="tableItems">
+        <thead class="table-primary">
+          <tr>
+            <th>Produk</th>
+            <th>Jika Tambah Baru - Nama Produk</th>
+            <th>Jumlah</th>
+            <th>Keterangan</th>
+            <th>Gambar</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="itemsContainer">
+          <tr class="item-row">
+            <td>
+              <select name="produk[]" class="form-select produk-select" required>
+                <option value="">-- Pilih Produk --</option>
+                <% produk.forEach(p => { %>
+                  <option value="<%= p.id %>"><%= p.nama %></option>
+                <% }) %>
+                <option value="__TAMBAH_BARU__">+ Tambah Baru (ketik nama di kolom sebelah)</option>
+              </select>
+            </td>
+            <td><input type="text" name="produk_nama[]" class="form-control produk-nama" placeholder="Nama jika tambah baru" style="display:none;"></td>
+            <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required></td>
+            <td><input type="text" name="keterangan[]" class="form-control keterangan"></td>
+
+            <!-- input file (nama array sehingga order terjaga) -->
+            <td><input type="file" name="gambar" accept="image/*" class="form-control gambar-input"></td>
+
+            <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="text-center">
+        <button type="button" id="addRow" class="btn btn-success mb-3">+ Tambah Produk</button><br>
+        <button type="submit" class="btn btn-primary">Simpan Barang Masuk</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // Tambah baris baru (clone template)
+    document.getElementById("addRow").addEventListener("click", function() {
+      const template = document.querySelector('#itemsContainer .item-row');
+      const clone = template.cloneNode(true);
+      // reset values (text/select/file)
+      clone.querySelectorAll('input').forEach(i => { if (i.type !== 'file') i.value = ''; else i.value = null; });
+      clone.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+      clone.querySelector('.produk-nama').style.display = 'none';
+      document.getElementById("itemsContainer").appendChild(clone);
+    });
+
+    // Hapus baris
+    document.addEventListener("click", function(e) {
+      if (e.target.classList.contains("removeRow")) {
+        const rows = document.querySelectorAll('#itemsContainer .item-row');
+        if (rows.length > 1) {
+          e.target.closest('tr').remove();
+        } else {
+          e.target.closest('tr').querySelectorAll('input, select').forEach(i => {
+            if (i.tagName === 'SELECT') i.selectedIndex = 0;
+            else i.value = '';
+          });
+          e.target.closest('tr').querySelector('.produk-nama').style.display = 'none';
+        }
+      }
+    });
+
+    // toggle manual name input ketika pilih "Tambah Baru"
+    document.addEventListener('change', function(e) {
+      if (e.target.classList.contains('produk-select')) {
+        const tr = e.target.closest('tr');
+        const manualInput = tr.querySelector('.produk-nama');
+        if (e.target.value === '__TAMBAH_BARU__') {
+          manualInput.style.display = '';
+          manualInput.required = true;
+        } else {
+          manualInput.style.display = 'none';
+          manualInput.required = false;
+        }
+      }
+    });
+
+    // sebelum submit -> validasi sederhana (kita tidak lagi membuat items JSON; server akan baca arrays dan files)
+    document.getElementById('formMasuk').addEventListener('submit', function(e) {
+      const pengirim = document.getElementById('pengirim').value.trim();
+      if (!pengirim) { e.preventDefault(); alert('Isi nama pengirim.'); return; }
+
+      const rows = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
+      const valid = rows.some(r => {
+        const sel = r.querySelector('.produk-select');
+        const manual = r.querySelector('.produk-nama')?.value?.trim() || '';
+        const jumlah = r.querySelector('.jumlah')?.value || '';
+        return ((sel && sel.value && sel.value !== '') || manual.length) && jumlah && parseInt(jumlah,10) > 0;
+      });
+
+      if (!valid) {
+        e.preventDefault();
+        alert('Tambahkan minimal 1 item yang valid (produk + jumlah).');
+        return;
+      }
+      // form submit biasa (multipart)
+    });
+  </script>
+</body>
+</html>

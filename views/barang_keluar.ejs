@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Barang Keluar</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body { background-color: #f8f9fa; }
+    .container { max-width: 1000px; }
+    th, td { vertical-align: middle; }
+  </style>
+</head>
+<body class="bg-light">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+        <a class="navbar-brand" href="/">Manajemen Toko</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+            <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
+            </ul>
+        </div>
+        </div>
+    </nav>
+
+  <div class="container mt-5 p-4 bg-white shadow-sm rounded">
+    <h2 class="text-center mb-4">Form Barang Keluar</h2>
+
+    <!-- NOTE: enctype multipart/form-data diperlukan untuk upload file -->
+    <form action="/barang-keluar" method="POST" id="formKeluar" enctype="multipart/form-data">
+      <!-- Input Tujuan -->
+      <div class="mb-3">
+        <label class="form-label fw-bold">Tujuan Pengiriman</label>
+        <input type="text" class="form-control" name="tujuan" required />
+      </div>
+
+      <!-- Table Barang Keluar -->
+      <table class="table table-bordered text-center align-middle" id="tableItems">
+        <thead class="table-danger">
+          <tr>
+            <th>Produk</th>
+            <th>Jumlah</th>
+            <th>Keterangan</th>
+            <th>Gambar</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="itemsContainer">
+          <tr>
+            <td>
+              <select name="produk[]" class="form-select" required>
+                <option value="">-- Pilih Produk --</option>
+                <% produk.forEach(p => { %>
+                  <option value="<%= p.id %>"><%= p.nama %></option>
+                <% }) %>
+              </select>
+            </td>
+            <td><input type="number" name="jumlah[]" class="form-control" min="1" required></td>
+            <td><input type="text" name="keterangan[]" class="form-control" placeholder="Opsional"></td>
+            <td><input type="file" name="gambar" accept="image/*" class="form-control form-control-sm"></td>
+            <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="text-center">
+        <button type="button" id="addRow" class="btn btn-success mb-3">+ Tambah Produk</button><br>
+        <button type="submit" class="btn btn-primary">Simpan Barang Keluar</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // produk array dari server (variable bernama "produk" dikirim oleh app.js)
+    const produkList = <%- JSON.stringify(produk || []) %>;
+
+    // Tambah baris baru dengan dropdown yang terisi produkList + input file
+    document.getElementById("addRow").addEventListener("click", function() {
+      let options = '<option value="">-- Pilih Produk --</option>';
+      produkList.forEach(p => {
+        options += `<option value="${p.id}">${p.nama}</option>`;
+      });
+
+      const newRow = `
+        <tr>
+          <td><select name="produk[]" class="form-select" required>${options}</select></td>
+          <td><input type="number" name="jumlah[]" class="form-control" min="1" required></td>
+          <td><input type="text" name="keterangan[]" class="form-control" placeholder="Opsional"></td>
+          <td><input type="file" name="gambar" accept="image/*" class="form-control form-control-sm"></td>
+          <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
+        </tr>`;
+      document.getElementById("itemsContainer").insertAdjacentHTML("beforeend", newRow);
+    });
+
+    // Hapus baris
+    document.addEventListener("click", function(e) {
+      if (e.target.classList.contains("removeRow")) {
+        const tr = e.target.closest("tr");
+        tr.remove();
+      }
+    });
+  </script>
+</body>
+</html>

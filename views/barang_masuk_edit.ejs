@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Edit Barang Masuk #<%= bm.id %></title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <div class="container mt-4">
+    <div class="d-flex justify-content-between mb-3">
+      <h3>Edit Barang Masuk</h3>
+      <div>
+        <a class="btn btn-secondary me-2" href="/barang-masuk/<%= bm.id %>">Batal</a>
+        <a class="btn btn-outline-primary" href="/">Dashboard</a>
+      </div>
+    </div>
+
+    <form method="POST" action="/barang-masuk/<%= bm.id %>/edit" id="formEditBM">
+      <div class="mb-3">
+        <label class="form-label">Nama Pengirim</label>
+        <input type="text" name="pengirim" id="pengirim" class="form-control" value="<%= bm.pengirim %>" required>
+      </div>
+
+      <table class="table table-bordered align-middle text-center">
+        <thead class="table-primary">
+          <tr>
+            <th>Produk</th>
+            <th>Jika Tambah Baru - Nama Produk</th>
+            <th>Jumlah</th>
+            <th>Keterangan</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="itemsContainer">
+          <% if (items && items.length>0) { %>
+            <% items.forEach(it => { %>
+              <tr class="item-row">
+                <td>
+                  <select name="produk[]" class="form-select produk-select" required>
+                    <option value="">-- Pilih Produk --</option>
+                    <% produk.forEach(p => { %>
+                      <option value="<%= p.id %>" <%= p.id === it.produk_id ? 'selected' : '' %>><%= p.nama %></option>
+                    <% }) %>
+                    <option value="__TAMBAH_BARU__">+ Tambah Baru (ketik nama di kolom sebelah)</option>
+                  </select>
+                </td>
+                <td><input type="text" name="produk_nama[]" class="form-control produk-nama" placeholder="Nama jika tambah baru" style="display:none;" value="<%= it.produk_id ? '' : it.produk_nama %>"></td>
+                <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required value="<%= it.jumlah %>"></td>
+                <td><input type="text" name="keterangan[]" class="form-control keterangan" value="<%= it.keterangan %>"></td>
+                <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
+              </tr>
+            <% }) %>
+          <% } else { %>
+            <tr class="item-row">
+              <td>
+                <select name="produk[]" class="form-select produk-select" required>
+                  <option value="">-- Pilih Produk --</option>
+                  <% produk.forEach(p => { %>
+                    <option value="<%= p.id %>"><%= p.nama %></option>
+                  <% }) %>
+                  <option value="__TAMBAH_BARU__">+ Tambah Baru (ketik nama di kolom sebelah)</option>
+                </select>
+              </td>
+              <td><input type="text" name="produk_nama[]" class="form-control produk-nama" placeholder="Nama jika tambah baru" style="display:none;"></td>
+              <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required></td>
+              <td><input type="text" name="keterangan[]" class="form-control keterangan"></td>
+              <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+
+      <div class="mb-3 text-center">
+        <button type="button" id="addRow" class="btn btn-success">+ Tambah Produk</button>
+      </div>
+
+      <input type="hidden" name="items" id="itemsInput">
+      <div class="text-center">
+        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+      </div>
+    </form>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // add row
+  document.getElementById('addRow').addEventListener('click', function(){
+    const template = document.querySelector('#itemsContainer .item-row');
+    const clone = template.cloneNode(true);
+    clone.querySelectorAll('input').forEach(i => i.value = '');
+    clone.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+    clone.querySelector('.produk-nama').style.display = 'none';
+    document.getElementById('itemsContainer').appendChild(clone);
+  });
+
+  // remove row
+  document.addEventListener('click', function(e){
+    if (e.target.classList.contains('removeRow')) {
+      const rows = document.querySelectorAll('#itemsContainer .item-row');
+      if (rows.length > 1) e.target.closest('tr').remove();
+      else {
+        // reset
+        rows[0].querySelectorAll('input, select').forEach(i => {
+          if (i.tagName === 'SELECT') i.selectedIndex = 0; else i.value = '';
+        });
+        rows[0].querySelector('.produk-nama').style.display = 'none';
+      }
+    }
+  });
+
+  // toggle manual name
+  document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('produk-select')) {
+      const tr = e.target.closest('tr');
+      const manual = tr.querySelector('.produk-nama');
+      if (e.target.value === '__TAMBAH_BARU__') { manual.style.display = ''; manual.required = true; }
+      else { manual.style.display = 'none'; manual.required = false; }
+    }
+  });
+
+  // before submit -> build items JSON (same format parseItemsFromBody expects)
+  document.getElementById('formEditBM').addEventListener('submit', function(e){
+    const rows = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
+    const items = rows.map(r => {
+      const sel = r.querySelector('.produk-select');
+      const selVal = sel ? sel.value : '';
+      const manual = r.querySelector('.produk-nama')?.value?.trim() || '';
+      const jumlah = r.querySelector('.jumlah')?.value || '';
+      const keterangan = r.querySelector('.keterangan')?.value?.trim() || null;
+      if (selVal === '__TAMBAH_BARU__') {
+        return { produk_nama: manual, jumlah: jumlah ? parseInt(jumlah,10) : 0, keterangan };
+      } else {
+        return { produk_id: selVal ? parseInt(selVal,10) : null, jumlah: jumlah ? parseInt(jumlah,10) : 0, keterangan };
+      }
+    }).filter(it => ( (it.produk_id && it.produk_id>0) || (it.produk_nama && it.produk_nama.length>0) ) && it.jumlah && it.jumlah > 0);
+
+    if (!items.length) { e.preventDefault(); alert('Tambahkan minimal 1 item valid.'); return; }
+    document.getElementById('itemsInput').value = JSON.stringify(items);
+  });
+</script>
+</body>
+</html>
