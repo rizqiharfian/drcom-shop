@@ -58,12 +58,12 @@
       <div class="card-header bg-primary text-white">Form Pembelian</div>
       <div class="card-body">
         <form method="POST" action="/beli" class="row g-3">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label for="customer" class="form-label">Customer/Seller</label>
             <input type="text" name="customer" id="customer" class="form-control" required placeholder="Nama Customer">
           </div>
 
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label for="produk_id" class="form-label">Produk</label>
             <!-- searchable select menggunakan Select2 -->
             <select name="produk_id" id="produk_id" class="form-select" required>
@@ -79,6 +79,11 @@
             <input type="number" name="jumlah" id="jumlah" class="form-control" required placeholder="Jumlah" min="1">
           </div>
 
+          <div class="col-md-2">
+            <label for="keterangan" class="form-label">Keterangan</label>
+            <input type="text" name="keterangan" id="keterangan" class="form-control" required placeholder="keterangan">
+          </div>
+
           <div class="col-md-2 d-flex align-items-end">
             <button type="submit" class="btn btn-success w-100">Beli</button>
           </div>
@@ -88,6 +93,30 @@
 
     <!-- ================= Riwayat Pembelian ================= -->
     <h3 class="text-center mb-3">Riwayat Pembelian Online/COD</h3>
+    <!-- Export controls (letakkan sebelum tabel Pembelian) -->
+    <div class="d-flex justify-content-end mb-2 gap-2">
+      <div class="btn-group">
+        <button id="pbExportBtn" type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-file-earmark-pdf"></i> Export
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width:220px;">
+          <li><a class="dropdown-item" href="#" id="exportPB_today">Hari ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportPB_week">Minggu ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportPB_month">Bulan ini</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li class="px-2">
+            <label class="form-label small mb-1">Custom range</label>
+            <div class="d-flex gap-1">
+              <input type="date" id="exportPB_start" class="form-control form-control-sm">
+              <input type="date" id="exportPB_end" class="form-control form-control-sm">
+            </div>
+            <div class="text-end mt-1">
+              <button id="exportPB_custom" class="btn btn-sm btn-primary">Export</button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
     <div class="table-responsive mb-2">
       <table class="table table-bordered table-striped table-fixed">
         <thead class="table-dark text-center">
@@ -96,6 +125,7 @@
             <th>Customer/Seller</th>
             <th>Produk</th>
             <th style="width:90px">Jumlah</th>
+            <th style="width:120px">Keterangan</th>
             <th style="width:180px">Tanggal</th>
             <th style="width:110px">Aksi</th>
           </tr>
@@ -110,26 +140,42 @@
                 <td class="cell-customer"><%= p.customer %></td>
                 <td class="cell-produk text-start"><%= prod.nama || p.produk_id %></td>
                 <td class="cell-jumlah"><%= p.jumlah %></td>
+                <td class="cell-keterangan"><%= p.keterangan || '-' %></td>
                 <td class="cell-tanggal"><%= new Date(p.tanggal).toLocaleString('id-ID') %></td>
                 <td>
-                  <div class="d-flex justify-content-center gap-1">
-                    <!-- Tombol Lihat Produk (ikon mata) -->
-                    <button type="button"
-                      class="btn btn-outline-primary btn-sm btnLihatProduk"
-                      data-produk='<%- JSON.stringify(prod) %>'
-                      title="Lihat Produk"
-                      aria-label="Lihat Produk">
-                      <i class="bi bi-eye"></i>
-                    </button>
+  <div class="d-flex justify-content-center gap-1 align-items-center">
+    <!-- Tombol toggle status: merah jika pending (2), hijau jika selesai (1) -->
+    <button type="button"
+            class="btn btn-sm btnToggleStatus <%= (p.status == 2 ? 'btn-outline-danger' : 'btn-outline-success') %>"
+            data-id="<%= p.id %>"
+            data-produk-id="<%= p.produk_id %>"
+            data-jumlah="<%= p.jumlah %>"
+            title="<%= p.status == 2 ? 'Tandai Selesai' : 'Kembalikan ke Pending' %>">
+      <% if (p.status == 2) { %>
+        <i class="bi bi-x-circle"></i>
+      <% } else { %>
+        <i class="bi bi-check-circle"></i>
+      <% } %>
+    </button>
 
-                    <!-- Tombol Batalkan (ikon tong sampah) -->
-                    <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
-                      <button type="submit" class="btn btn-outline-danger btn-sm" title="Batalkan" aria-label="Batalkan">
-                        <i class="bi bi-trash"></i>
-                      </button>
-                    </form>
-                  </div>
-                </td>
+    <!-- Tombol Lihat Produk -->
+    <button type="button"
+      class="btn btn-outline-primary btn-sm btnLihatProduk"
+      data-produk='<%- JSON.stringify(prod) %>'
+      title="Lihat Produk"
+      aria-label="Lihat Produk">
+      <i class="bi bi-eye"></i>
+    </button>
+
+    <!-- Tombol Batalkan (hapus) -->
+    <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
+      <button type="submit" class="btn btn-outline-danger btn-sm" title="Batalkan" aria-label="Batalkan">
+        <i class="bi bi-trash"></i>
+      </button>
+    </form>
+  </div>
+</td>
+
               </tr>
             <% }); %>
           <% } else { %>
@@ -141,32 +187,56 @@
     <nav><ul id="paginationPembelian" class="pagination"></ul></nav>
 
     <!-- Modal Detail Produk -->
-<div class="modal fade" id="modalDetailProduk" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content">
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title">Detail Produk</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <div id="produkDetail" class="text-center">
-          <img id="produkGambar" src="" alt="Gambar Produk" class="img-fluid mb-3 rounded" style="max-height: 250px; object-fit: contain;">
-          <h4 id="produkNama" class="fw-bold"></h4>
-          <p id="produkKeterangan" class="text-muted"></p>
-          <p class="small text-secondary">Stok tersedia: <strong id="produkStok"></strong></p>
+    <div class="modal fade" id="modalDetailProduk" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title">Detail Produk</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div id="produkDetail" class="text-center">
+              <img id="produkGambar" src="" alt="Gambar Produk" class="img-fluid mb-3 rounded" style="max-height: 250px; object-fit: contain;">
+              <h4 id="produkNama" class="fw-bold"></h4>
+              <p id="produkKeterangan" class="text-muted"></p>
+              <p class="small text-secondary">Stok tersedia: <strong id="produkStok"></strong></p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
+          </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
-      </div>
     </div>
-  </div>
-</div>
 
     <hr>
 
     <!-- ================= Riwayat Barang Masuk ================= -->
     <h3 class="text-center mb-3">Riwayat Barang Masuk</h3>
+    <!-- Export controls (letakkan sebelum tabel Barang Masuk) -->
+    <div class="d-flex justify-content-end mb-2 gap-2">
+      <div class="btn-group">
+        <button id="bmExportBtn" type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-file-earmark-pdf"></i> Export
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width:220px;">
+          <li><a class="dropdown-item" href="#" id="exportBM_today">Hari ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportBM_week">Minggu ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportBM_month">Bulan ini</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li class="px-2">
+            <label class="form-label small mb-1">Custom range</label>
+            <div class="d-flex gap-1">
+              <input type="date" id="exportBM_start" class="form-control form-control-sm">
+              <input type="date" id="exportBM_end" class="form-control form-control-sm">
+            </div>
+            <div class="text-end mt-1">
+              <button id="exportBM_custom" class="btn btn-sm btn-primary">Export</button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
     <div class="table-responsive mb-2">
       <table class="table table-bordered table-striped table-fixed align-middle">
         <thead class="table-dark text-center">
@@ -178,7 +248,7 @@
             <th style="width:90px">Jumlah</th>
             <th>Keterangan</th>
             <th style="width:180px">Tanggal</th>
-            <th style="width:120px">Aksi</th>
+            <th style="width:130px">Aksi</th>
           </tr>
         </thead>
         <tbody id="tbBM" class="text-center">
@@ -228,6 +298,31 @@
 
     <!-- ================= Riwayat Barang Keluar ================= -->
     <h3 class="text-center mb-3">Riwayat Barang Keluar</h3>
+    <!-- Export controls (letakkan sebelum tabel Barang Keluar) -->
+    <div class="d-flex justify-content-end mb-2 gap-2">
+      <div class="btn-group">
+        <button id="bkExportBtn" type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-file-earmark-pdf"></i> Export
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width:220px;">
+          <li><a class="dropdown-item" href="#" id="exportBK_today">Hari ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportBK_week">Minggu ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportBK_month">Bulan ini</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li class="px-2">
+            <label class="form-label small mb-1">Custom range</label>
+            <div class="d-flex gap-1">
+              <input type="date" id="exportBK_start" class="form-control form-control-sm">
+              <input type="date" id="exportBK_end" class="form-control form-control-sm">
+            </div>
+            <div class="text-end mt-1">
+              <button id="exportBK_custom" class="btn btn-sm btn-primary">Export</button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <div class="table-responsive mb-2">
       <table class="table table-bordered table-striped table-fixed">
         <thead class="table-dark text-center">
@@ -239,7 +334,7 @@
             <th style="width:90px">Jumlah</th>
             <th>Keterangan</th>
             <th style="width:180px">Tanggal</th>
-            <th style="width:120px">Aksi</th>
+            <th style="width:130px">Aksi</th>
           </tr>
         </thead>
         <tbody id="tbBK" class="text-center">
@@ -417,28 +512,249 @@
       paginateTable('tbBK', 'paginationBK', 5);
     });
   </script>
-  <script>
-  // --- Modal Lihat Produk ---
-  const modalProduk = new bootstrap.Modal(document.getElementById('modalDetailProduk'));
-  const elGambar = document.getElementById('produkGambar');
-  const elNama = document.getElementById('produkNama');
-  const elKet = document.getElementById('produkKeterangan');
-  const elStok = document.getElementById('produkStok');
+  <!-- letakkan sebelum </body> -->
+<script>
+  document.addEventListener('click', function(e){
+    if (e.target.closest('.btnLihatProduk')) {
+      const btn = e.target.closest('.btnLihatProduk');
+      const data = btn.getAttribute('data-produk');
+      let prod = {};
+      try { prod = JSON.parse(data); } catch(_) { prod = {}; }
 
-  document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('btnLihatProduk')) {
-      const prod = JSON.parse(e.target.dataset.produk || '{}');
-      elNama.textContent = prod.nama || 'Tanpa Nama';
-      elKet.textContent = prod.keterangan || '-';
-      elStok.textContent = prod.jumlah_stok || 0;
+      // isi modal
+      const img = document.getElementById('produkGambar');
+      const nama = document.getElementById('produkNama');
+      const ket = document.getElementById('produkKeterangan');
+      const stok = document.getElementById('produkStok');
 
-      const gambarList = (prod.gambar ? prod.gambar.split(',') : []);
-      elGambar.src = gambarList.length ? `/media/${gambarList[0]}` : '/media/default.jpg';
-      
-      modalProduk.show();
+      if (prod.gambar) {
+        // jika field gambar di produk berisi csv filename -> ambil pertama
+        const first = (prod.gambar && prod.gambar.split && prod.gambar.split(',')[0]) || null;
+        img.src = first ? ('/media/' + first) : '/media/default.jpg';
+      } else {
+        img.src = '/media/default.jpg';
+      }
+      nama.textContent = prod.nama || ('Produk ID ' + (prod.id || ''));
+      ket.textContent = prod.keterangan || '-';
+      stok.textContent = (typeof prod.jumlah_stok !== 'undefined') ? prod.jumlah_stok : '-';
+
+      const modalEl = document.getElementById('modalDetailProduk');
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
     }
   });
 </script>
+<script>
+  // helper: format date yyyy-mm-dd
+  function toYMD(d) {
+    const pad = n => (n < 10 ? '0' + n : '' + n);
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+  }
+
+  // compute week start (Monday) and end (Sunday)
+  function weekRange(d) {
+    const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    // Monday as start
+    const day = (date.getDay() + 6) % 7; // 0..6 where 0 = Monday
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - day);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {start: toYMD(monday), end: toYMD(sunday)};
+  }
+
+  // open export (target _blank)
+  function openExportBM(start, end) {
+    if (!start || !end) return alert('Range belum lengkap.');
+    const url = `/export/barang-masuk/pdf?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    window.open(url, '_blank');
+  }
+
+  document.getElementById('exportBM_today').addEventListener('click', (e) => {
+    e.preventDefault();
+    const today = toYMD(new Date());
+    openExportBM(today, today);
+  });
+
+  document.getElementById('exportBM_week').addEventListener('click', (e) => {
+    e.preventDefault();
+    const r = weekRange(new Date());
+    openExportBM(r.start, r.end);
+  });
+
+  document.getElementById('exportBM_month').addEventListener('click', (e) => {
+    e.preventDefault();
+    const now = new Date();
+    const start = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-01';
+    const endDate = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const end = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(endDate).padStart(2,'0');
+    openExportBM(start, end);
+  });
+
+  document.getElementById('exportBM_custom').addEventListener('click', () => {
+    const s = document.getElementById('exportBM_start').value;
+    const e = document.getElementById('exportBM_end').value;
+    if (!s || !e) return alert('Pilih tanggal mulai dan akhir.');
+    if (s > e) return alert('Tanggal mulai harus <= tanggal akhir.');
+    openExportBM(s, e);
+  });
+</script>
+<script>
+function toYMD(d){const p=n=>n<10?'0'+n:''+n;return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+function weekRange(d){const day=(d.getDay()+6)%7;const mon=new Date(d);mon.setDate(d.getDate()-day);const sun=new Date(mon);sun.setDate(mon.getDate()+6);return{start:toYMD(mon),end:toYMD(sun)};}
+function openExportBK(s,e){if(!s||!e)return alert('Range belum lengkap.');window.open(`/export/barang-keluar/pdf?start=${s}&end=${e}`,'_blank');}
+
+document.getElementById('exportBK_today').addEventListener('click',e=>{e.preventDefault();const t=toYMD(new Date());openExportBK(t,t);});
+document.getElementById('exportBK_week').addEventListener('click',e=>{e.preventDefault();const r=weekRange(new Date());openExportBK(r.start,r.end);});
+document.getElementById('exportBK_month').addEventListener('click',e=>{e.preventDefault();const n=new Date(),s=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01',eD=new Date(n.getFullYear(),n.getMonth()+1,0).getDate(),eDate=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(eD).padStart(2,'0');openExportBK(s,eDate);});
+document.getElementById('exportBK_custom').addEventListener('click',()=>{const s=document.getElementById('exportBK_start').value,e=document.getElementById('exportBK_end').value;if(!s||!e)return alert('Pilih tanggal mulai dan akhir.');if(s>e)return alert('Tanggal mulai harus <= tanggal akhir.');openExportBK(s,e);});
+</script>
+<script>
+function toYMD(d){const p=n=>n<10?'0'+n:''+n;return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+function weekRange(d){const day=(d.getDay()+6)%7;const mon=new Date(d);mon.setDate(d.getDate()-day);const sun=new Date(mon);sun.setDate(mon.getDate()+6);return{start:toYMD(mon),end:toYMD(sun)};}
+function openExportPB(s,e){if(!s||!e)return alert('Range belum lengkap.');window.open(`/export/pembelian/pdf?start=${s}&end=${e}`,'_blank');}
+
+document.getElementById('exportPB_today').addEventListener('click',e=>{e.preventDefault();const t=toYMD(new Date());openExportPB(t,t);});
+document.getElementById('exportPB_week').addEventListener('click',e=>{e.preventDefault();const r=weekRange(new Date());openExportPB(r.start,r.end);});
+document.getElementById('exportPB_month').addEventListener('click',e=>{e.preventDefault();const n=new Date(),s=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01',eD=new Date(n.getFullYear(),n.getMonth()+1,0).getDate(),eDate=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(eD).padStart(2,'0');openExportPB(s,eDate);});
+document.getElementById('exportPB_custom').addEventListener('click',()=>{const s=document.getElementById('exportPB_start').value,e=document.getElementById('exportPB_end').value;if(!s||!e)return alert('Pilih tanggal mulai dan akhir.');if(s>e)return alert('Tanggal mulai harus <= tanggal akhir.');openExportPB(s,e);});
+</script>
+<script>
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.btnCompletePurchase');
+  if (!btn) return;
+
+  ev.preventDefault();
+
+  const id = btn.dataset.id;
+  if (!id) return alert('ID pembelian tidak ditemukan.');
+
+  // disable while processing
+  btn.disabled = true;
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+  try {
+    const res = await fetch(`/pembelian/complete/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' } // server tetap menerima POST form, ini ok
+    });
+
+    if (!res.ok) {
+      // coba ambil pesan error jika json/text diberikan
+      let msg = 'Gagal menyelesaikan pembelian.';
+      try {
+        const txt = await res.text();
+        if (txt) msg = txt;
+      } catch(e){}
+      throw new Error(msg);
+    }
+
+    // sukses — update UI
+    // 1) ubah tombol jadi badge "selesai"
+    btn.classList.remove('btn-outline-success');
+    btn.classList.add('btn-outline-secondary');
+    btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+    btn.disabled = true;
+
+    // 2) optional: perbarui stok produk di UI (jika kamu menampilkan stok di elemen dengan data-produk-id)
+    //    kita cari elemen yang memuat stok produk (misal di halaman produk ada ele span with data-stock)
+    const produkId = btn.dataset.produkId;
+    const qty = parseInt(btn.dataset.jumlah, 10) || 0;
+    if (produkId) {
+      // cari elemen stok: sesuaikan selector dengan struktur halamanmu
+      // contoh: <span class="product-stock" data-produk-id="12">10</span>
+      const stockEl = document.querySelector(`.product-stock[data-produk-id="${produkId}"]`);
+      if (stockEl) {
+        const cur = parseInt(stockEl.textContent, 10) || 0;
+        stockEl.textContent = Math.max(0, cur - qty);
+      }
+    }
+
+    // 3) (fallback) jika mau reload seluruh halaman agar semua angka konsisten, uncomment:
+    // window.location.reload();
+
+  } catch (err) {
+    console.error('complete error:', err);
+    alert(err.message || 'Gagal menyelesaikan pembelian.');
+    // restore
+    btn.innerHTML = origHTML;
+    btn.disabled = false;
+  }
+});
+</script>
+<script>
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.btnToggleStatus');
+  if (!btn) return;
+
+  ev.preventDefault();
+  const id = btn.dataset.id;
+  const produkId = btn.dataset.produkId;
+  const jumlah = parseInt(btn.dataset.jumlah || '0', 10) || 0;
+
+  if (!id) return alert('ID tidak ditemukan.');
+
+  // disable & spinner
+  btn.disabled = true;
+  const oldHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+  try {
+    const res = await fetch(`/pembelian/toggle/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    });
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error((data && data.error) ? data.error : 'Gagal toggle status');
+    }
+
+    // update tombol UI berdasarkan data.status
+    if (data.status == 1) {
+      // now finished -> green check
+      btn.classList.remove('btn-outline-danger');
+      btn.classList.add('btn-outline-success');
+      btn.innerHTML = '<i class="bi bi-check-circle"></i>';
+      btn.title = 'Kembalikan ke Pending';
+    } else {
+      // now pending -> red x
+      btn.classList.remove('btn-outline-success');
+      btn.classList.add('btn-outline-danger');
+      btn.innerHTML = '<i class="bi bi-x-circle"></i>';
+      btn.title = 'Tandai Selesai';
+    }
+    btn.disabled = false;
+
+    // update stok display in page if exists:
+    // expects element(s): .product-stock[data-produk-id="..."] (you may adapt selector)
+    if (produkId) {
+      const stockEls = document.querySelectorAll(`.product-stock[data-produk-id="${produkId}"]`);
+      if (stockEls && stockEls.length > 0) {
+        stockEls.forEach(el => { el.textContent = String(data.stock ?? el.textContent); });
+      }
+    }
+
+    // optionally change badge in row (if you display textual badge)
+    // e.g. an element <span class="purchase-status" data-id="...">Pending</span>
+    const statusSpan = document.querySelector(`.purchase-status[data-id="${id}"]`);
+    if (statusSpan) {
+      statusSpan.textContent = (data.status == 1) ? 'Selesai' : 'Pending';
+      statusSpan.classList.toggle('badge-success', data.status == 1);
+      statusSpan.classList.toggle('badge-danger', data.status == 2);
+    }
+
+  } catch (err) {
+    console.error('Toggle pembelian error:', err);
+    alert(err.message || 'Gagal toggle status pembelian.');
+    // restore
+    btn.innerHTML = oldHtml;
+    btn.disabled = false;
+  }
+});
+</script>
+
 
 </body>
 </html>

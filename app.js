@@ -30,6 +30,8 @@ const q = (sql, params=[]) => new Promise((resolve, reject) => {
   db.query(sql, params, (err, results) => err ? reject(err) : resolve(results));
 });
 
+const PDFDocument = require('pdfkit');
+
 const beginTransaction = () => new Promise((resolve, reject) => {
   db.beginTransaction(err => err ? reject(err) : resolve());
 });
@@ -111,32 +113,130 @@ app.get('/', async (req, res) => {
 });
 
 
-// ---------- PEMBELIAN PRODUK ----------
+// ---------- PEMBELIAN PRODUK (create as PENDING) ----------
 app.post('/beli', async (req, res) => {
   try {
-    const { customer, produk_id, jumlah } = req.body;
+    const { customer, produk_id, jumlah, keterangan } = req.body;
+
+    // validasi dasar (keterangan optional)
     if (!customer || !produk_id || !jumlah) return res.status(400).send('Form tidak lengkap.');
 
     const pid = parseInt(produk_id, 10);
     const qty = parseInt(jumlah, 10);
     if (!Number.isInteger(pid) || !Number.isInteger(qty) || qty <= 0) return res.status(400).send('Data tidak valid.');
 
-    await beginTransaction();
-    // insert pembelian
-    await q('INSERT INTO pembelian (customer, produk_id, jumlah) VALUES (?, ?, ?)', [customer, pid, qty]);
-    // update stock
-    const update = await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [qty, pid]);
-    if (update.affectedRows === 0) {
-      // produk ga ada di stock
-      await rollback();
-      return res.status(400).send('Produk tidak ditemukan di stock.');
-    }
-    await commit();
-    res.redirect('/');
+    const ket = (typeof keterangan === 'string' && keterangan.trim().length > 0) ? keterangan.trim() : null;
+
+    // insert pembelian dengan status = 2 (pending)
+    await q('INSERT INTO pembelian (customer, produk_id, jumlah, keterangan, status) VALUES (?, ?, ?, ?, ?)', [customer.trim(), pid, qty, ket, 2]);
+
+    // jangan update stock sekarang -> stok dikurangi saat marked complete
+    return res.redirect('/');
   } catch (err) {
     console.error('POST /beli error:', err);
+    return res.status(500).send('Gagal memproses pembelian.');
+  }
+});
+
+// Toggle pembelian complete <-> pending, adjust stock accordingly
+app.post('/pembelian/toggle/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ ok: false, error: 'ID tidak valid' });
+
+    // ambil pembelian
+    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ ok: false, error: 'Pembelian tidak ditemukan' });
+    const beli = rows[0];
+
+    // produk & jumlah
+    const pid = parseInt(beli.produk_id, 10);
+    const qty = parseInt(beli.jumlah, 10) || 0;
+
+    await beginTransaction();
+
+    let newStatus;
+
+    if (beli.status === 2 || beli.status == '2') {
+      // pending -> selesai : kurangi stock
+      // pastikan ada row stock dan cukup
+      const stockRows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
+      const curStock = (stockRows && stockRows.length) ? parseInt(stockRows[0].jumlah, 10) : 0;
+      if (curStock < qty) {
+        await rollback();
+        return res.status(400).json({ ok: false, error: `Stok tidak cukup (tersisa ${curStock}).` });
+      }
+
+      // update stock secara atomic
+      const upd = await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ? AND jumlah >= ?', [qty, pid, qty]);
+      if (!upd || upd.affectedRows === 0) {
+        await rollback();
+        return res.status(500).json({ ok: false, error: 'Gagal mengurangi stok (konkursi).' });
+      }
+
+      // update status pembelian -> 1
+      await q('UPDATE pembelian SET status = 1 WHERE id = ?', [id]);
+      newStatus = 1;
+    } else {
+      // jika sudah selesai -> ubah balik ke pending dan RESTORE stok
+      // tambahkan kembali stok
+      await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)', [pid, qty]);
+      await q('UPDATE pembelian SET status = 2 WHERE id = ?', [id]);
+      newStatus = 2;
+    }
+
+    await commit();
+
+    // ambil stok terbaru
+    const afterStockRows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
+    const newStock = (afterStockRows && afterStockRows.length) ? afterStockRows[0].jumlah : 0;
+
+    return res.json({ ok: true, status: newStatus, stock: newStock, pembelian_id: id, produk_id: pid, jumlah: qty });
+  } catch (err) {
+    console.error('POST /pembelian/toggle/:id error:', err);
     try { await rollback(); } catch(_) {}
-    res.status(500).send('Gagal memproses pembelian.');
+    return res.status(500).json({ ok: false, error: 'Server error saat toggle pembelian.' });
+  }
+});
+
+// ---------- MARK PEMBELIAN SELESAI (complete) ----------
+app.post('/pembelian/complete/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).send('ID tidak valid.');
+
+    // ambil pembelian
+    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
+    if (!rows || rows.length === 0) return res.status(404).send('Pembelian tidak ditemukan.');
+
+    const pb = rows[0];
+    if (pb.status === 1) return res.redirect('/'); // sudah selesai
+
+    const pid = pb.produk_id;
+    const qty = pb.jumlah;
+
+    await beginTransaction();
+
+    // cek stok
+    const srows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
+    const cur = (srows && srows.length > 0) ? srows[0].jumlah : 0;
+    if (cur < qty) {
+      await rollback();
+      return res.status(400).send(`Stok tidak cukup (tersisa ${cur}) untuk menyelesaikan pembelian ini.`);
+    }
+
+    // kurangi stock
+    await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [qty, pid]);
+
+    // set status = 1 (selesai)
+    await q('UPDATE pembelian SET status = ? WHERE id = ?', [1, id]);
+
+    await commit();
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /pembelian/complete/:id error:', err);
+    try { await rollback(); } catch(_) {}
+    return res.status(500).send('Gagal menyelesaikan pembelian.');
   }
 });
 
@@ -146,16 +246,25 @@ app.post('/cancel/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.redirect('/');
 
-    const rows = await q('SELECT * FROM pembelian WHERE id = ?', [id]);
+    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
     if (!rows || rows.length === 0) return res.redirect('/');
 
     const pembelian = rows[0];
-    await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id]);
+
+    await beginTransaction();
+    if (pembelian.status === 1) {
+      // already completed -> restore stock
+      await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id]);
+    }
+    // delete pembelian
     await q('DELETE FROM pembelian WHERE id = ?', [id]);
-    res.redirect('/');
+    await commit();
+
+    return res.redirect('/');
   } catch (err) {
     console.error('POST /cancel error:', err);
-    res.status(500).send('Gagal membatalkan pembelian.');
+    try { await rollback(); } catch(_) {}
+    return res.status(500).send('Gagal membatalkan pembelian.');
   }
 });
 
@@ -178,6 +287,147 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
+
+// ========== EXPORT PDF PEMBELIAN (include status column, improved layout) ==========
+app.get('/export/pembelian/pdf', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) return res.status(400).send('Parameter start & end required (YYYY-MM-DD).');
+
+    // validate date basic format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD.');
+    }
+
+    const sql = `
+      SELECT p.id, p.customer, p.jumlah, p.keterangan, p.tanggal, p.status, pr.nama AS produk_nama
+      FROM pembelian p
+      LEFT JOIN produk pr ON p.produk_id = pr.id
+      WHERE DATE(p.tanggal) BETWEEN ? AND ?
+      ORDER BY p.tanggal DESC
+    `;
+    const rows = await q(sql, [start, end]);
+
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="laporan_pembelian_${start}_to_${end}.pdf"`);
+    doc.pipe(res);
+
+    const margin = 40;
+    const pageWidth = doc.page.width;
+    const contentWidth = pageWidth - margin * 2;
+
+    // column layout (tweak widths)
+    const colNoW = 30;
+    const colCustomerW = 100;
+    const colProductW = 100;
+    const colQtyW = 50;
+    const colStatusW = 70;
+    const colKetW = 100;
+    const colTanggalW = contentWidth - (colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW);
+
+    const headerFontSize = 16;
+    const rowFontSize = 10;
+    const lineHeight = 14;
+
+    function drawHeader() {
+      doc.fontSize(headerFontSize).font('Helvetica-Bold').fillColor('black').text('Laporan Pembelian Produk', { align: 'center' });
+      doc.moveDown(0.2);
+      doc.fontSize(10).font('Helvetica').text(`Periode: ${start} s.d ${end}`, { align: 'center' });
+      doc.moveDown(0.6);
+
+      // header row bg
+      const y = doc.y;
+      doc.save();
+      doc.opacity(0.04).rect(margin, y - 2, contentWidth, lineHeight + 6).fill();
+      doc.restore();
+
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('black');
+      doc.text('No', margin + 2, y, { width: colNoW - 2, align: 'center' });
+      doc.text('Customer', margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
+      doc.text('Produk', margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
+      doc.text('Jml', margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
+      doc.text('Status', margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
+      doc.text('Keterangan', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, y, { width: colKetW - 2, align: 'center' });
+      doc.text('Tanggal', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, y, { width: colTanggalW - 2, align: 'center' });
+
+      doc.moveDown(1.2);
+      doc.font('Helvetica').fontSize(rowFontSize);
+    }
+
+    function needNewPage(heightNeeded) {
+      const bottomLimit = doc.page.height - margin - 20;
+      if (doc.y + heightNeeded > bottomLimit) {
+        doc.addPage();
+        drawHeader();
+      }
+    }
+
+    drawHeader();
+
+    if (!rows || rows.length === 0) {
+      doc.fontSize(11).fillColor('gray').text('Tidak ada data pada rentang tanggal ini.', margin, doc.y);
+      doc.moveDown(2);
+      doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+      doc.end();
+      return;
+    }
+
+    rows.forEach((r, idx) => {
+      // prepare strings
+      const customerTxt = r.customer || '-';
+      const produkTxt = r.produk_nama || '-';
+      const qtyTxt = String(r.jumlah ?? '-');
+      const statusTxt = (r.status == 1 || r.status === 1) ? 'Selesai' : (r.status == 2 ? 'Pending' : (r.status === '1' ? 'Selesai' : (r.status === '2' ? 'Pending' : String(r.status || '-'))));
+      const ketTxt = r.keterangan || '-';
+      const tglTxt = r.tanggal ? new Date(r.tanggal).toLocaleString('id-ID') : '-';
+
+      // calculate expected height (wrap-aware)
+      const hNo = doc.heightOfString(String(idx + 1), { width: colNoW - 2 });
+      const hCust = doc.heightOfString(customerTxt, { width: colCustomerW - 2 });
+      const hProd = doc.heightOfString(produkTxt, { width: colProductW - 2 });
+      const hQty = doc.heightOfString(qtyTxt, { width: colQtyW - 2 });
+      const hStatus = doc.heightOfString(statusTxt, { width: colStatusW - 2 });
+      const hKet = doc.heightOfString(ketTxt, { width: colKetW - 2 });
+      const hTgl = doc.heightOfString(tglTxt, { width: colTanggalW - 2 });
+
+      const maxH = Math.max(hNo, hCust, hProd, hQty, hStatus, hKet, hTgl, lineHeight);
+
+      needNewPage(maxH + 6);
+
+      const y = doc.y;
+      doc.fontSize(rowFontSize).fillColor('black').text(String(idx + 1), margin + 2, y, { width: colNoW - 2, align: 'center' });
+      doc.text(customerTxt, margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
+      doc.text(produkTxt, margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
+      doc.text(qtyTxt, margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
+
+      // status with slight color (green/gray)
+      if (statusTxt.toLowerCase() === 'selesai') doc.fillColor('#1b7a1b');
+      else if (statusTxt.toLowerCase() === 'pending') doc.fillColor('#b02a2a');
+      else doc.fillColor('black');
+      doc.text(statusTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
+
+      // restore color for next columns
+      doc.fillColor('black');
+      doc.text(ketTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, y, { width: colKetW - 2, align: 'center' });
+      doc.text(tglTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, y, { width: colTanggalW - 2, align: 'center' });
+
+      // move down by approx one line of maxH
+      doc.moveDown(Math.max(1, Math.ceil(maxH / lineHeight)));
+    });
+
+    doc.moveDown(0.6);
+    doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+
+    doc.end();
+  } catch (err) {
+    console.error('/export/pembelian/pdf error:', err);
+    try { if (!res.headersSent) res.status(500).send('Gagal generate PDF pembelian.'); } catch(_) {}
+  }
+});
+
 
 
 // ==== POST /produk -> tambah produk + gambar + stok_awal ====
@@ -763,6 +1013,114 @@ function parseItemsFromBody(body) {
   return items;
 }
 
+// Export PDF: Barang Masuk by date range (start & end in YYYY-MM-DD)
+app.get('/export/barang-masuk/pdf', async (req, res) => {
+  try {
+    const start = req.query.start;
+    const end = req.query.end;
+    if (!start || !end) return res.status(400).send('Parameter start & end required (YYYY-MM-DD).');
+
+    // simple validation YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD.');
+    }
+
+    // Ambil semua transaksi barang_masuk pada rentang tanggal (inclusive)
+    const rows = await q(`
+      SELECT bm.id AS bm_id, bm.pengirim, bm.tanggal,
+             bmd.id AS detail_id, bmd.produk_id, bmd.jumlah AS qty, bmd.keterangan, bmd.gambar,
+             p.nama AS produk_nama
+      FROM barang_masuk bm
+      LEFT JOIN barang_masuk_detail bmd ON bm.id = bmd.barang_masuk_id
+      LEFT JOIN produk p ON bmd.produk_id = p.id
+      WHERE DATE(bm.tanggal) BETWEEN ? AND ?
+      ORDER BY bm.tanggal ASC, bm.id ASC
+    `, [start, end]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).send('Tidak ada data pada rentang tanggal tersebut.');
+    }
+
+    // group by bm_id
+    const grouped = {};
+    rows.forEach(r => {
+      if (!grouped[r.bm_id]) grouped[r.bm_id] = { id: r.bm_id, pengirim: r.pengirim, tanggal: r.tanggal, items: [] };
+      grouped[r.bm_id].items.push({
+        detail_id: r.detail_id,
+        produk_id: r.produk_id,
+        nama: r.produk_nama,
+        jumlah: r.qty,
+        keterangan: r.keterangan,
+        gambar: r.gambar
+      });
+    });
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    res.setHeader('Content-Type', 'application/pdf');
+    const fname = `barang-masuk-${start}_to_${end}.pdf`;
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
+    doc.pipe(res);
+
+    doc.fontSize(16).text('Laporan Barang Masuk', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Periode: ${start} — ${end}`, { align: 'center' });
+    doc.moveDown(1);
+
+    // iterate transactions
+    for (const key of Object.keys(grouped)) {
+      const tx = grouped[key];
+      doc.fontSize(12).fillColor('black').text(`Ref: ${tx.id}    Pengirim: ${tx.pengirim}    Tanggal: ${new Date(tx.tanggal).toLocaleString('id-ID')}`);
+      doc.moveDown(0.3);
+
+      // simple table header
+      doc.fontSize(11).text('No.  Produk', {continued: true}).text('  Jumlah', {align: 'right'});
+      doc.moveDown(0.2);
+
+      tx.items.forEach((it, idx) => {
+        // product line
+        const nama = it.nama || ('ID ' + it.produk_id);
+        doc.fontSize(10).text(`${String(idx+1).padStart(2,' ')}. ${nama}`);
+        doc.text(`   Jumlah: ${it.jumlah}`); // new line for jumlah for clarity
+        if (it.keterangan) doc.fontSize(9).fillColor('gray').text(`      Keterangan: ${it.keterangan}`);
+        doc.fillColor('black');
+        // gambar (jika ada)
+        if (it.gambar) {
+          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+          const imgPath = first ? path.join(__dirname, 'media', first) : null;
+          if (imgPath && fs.existsSync(imgPath)) {
+            try {
+              doc.image(imgPath, { fit: [120, 80] });
+            } catch (e) { /* ignore image errors */ }
+          }
+        }
+        doc.moveDown(0.3);
+      });
+
+      doc.moveDown(0.8);
+          // garis pemisah terakhir
+      const rightMargin = doc.page.margins?.right || 40;
+      doc.moveTo(doc.x, doc.y)
+        .lineTo(doc.page.width - rightMargin, doc.y)
+        .strokeOpacity(0.1)
+        .stroke();
+      }
+      doc.moveDown(0.8);
+      doc.fontSize(9).fillColor('gray')
+        .text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+
+      // akhiri stream (pastikan cuma sekali)
+      doc.end();
+
+    } catch (err) {
+      console.error('/export/barang-masuk/pdf error:', err);
+      // hanya kirim res.send jika stream belum ditutup
+      if (!res.headersSent) {
+        res.status(500).send('Gagal generate PDF.');
+      }
+    }
+});
+
+
 // ---------- BARANG KELUAR ----------
 app.get('/barang-keluar', async (req, res) => {
   try {
@@ -996,6 +1354,117 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
     console.error('POST /barang-keluar/edit/:id error:', err);
     try { await rollback(); } catch(_) {}
     return res.status(500).send('Gagal menyimpan perubahan.');
+  }
+});
+
+// ===================== EXPORT PDF: BARANG KELUAR (by date range) =====================
+app.get('/export/barang-keluar/pdf', async (req, res) => {
+  try {
+    const start = req.query.start;
+    const end = req.query.end;
+    if (!start || !end) return res.status(400).send('Parameter start & end required (YYYY-MM-DD).');
+
+    // validasi format tanggal
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD.');
+    }
+
+    // Ambil semua transaksi barang_keluar dalam rentang tanggal
+    const rows = await q(`
+      SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal,
+             bkd.id AS detail_id, bkd.produk_id, bkd.jumlah AS qty, bkd.keterangan, bkd.gambar,
+             p.nama AS produk_nama
+      FROM barang_keluar bk
+      LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
+      LEFT JOIN produk p ON bkd.produk_id = p.id
+      WHERE DATE(bk.tanggal) BETWEEN ? AND ?
+      ORDER BY bk.tanggal ASC, bk.id ASC
+    `, [start, end]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).send('Tidak ada data Barang Keluar pada rentang tanggal tersebut.');
+    }
+
+    // group by bk_id
+    const grouped = {};
+    rows.forEach(r => {
+      if (!grouped[r.bk_id]) grouped[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, tanggal: r.tanggal, items: [] };
+      grouped[r.bk_id].items.push({
+        detail_id: r.detail_id,
+        produk_id: r.produk_id,
+        nama: r.produk_nama,
+        jumlah: r.qty,
+        keterangan: r.keterangan,
+        gambar: r.gambar
+      });
+    });
+
+    // buat PDF
+    const PDFDocument = require('pdfkit');
+    const path = require('path');
+    const fs = require('fs');
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    res.setHeader('Content-Type', 'application/pdf');
+    const fname = `barang-keluar-${start}_to_${end}.pdf`;
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
+    doc.pipe(res);
+
+    doc.fontSize(16).text('Laporan Barang Keluar', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Periode: ${start} — ${end}`, { align: 'center' });
+    doc.moveDown(1);
+
+    // iterasi transaksi
+    for (const key of Object.keys(grouped)) {
+      const tx = grouped[key];
+      doc.fontSize(12).fillColor('black')
+        .text(`Ref: ${tx.id}    Tujuan: ${tx.tujuan}    Tanggal: ${new Date(tx.tanggal).toLocaleString('id-ID')}`);
+      doc.moveDown(0.3);
+
+      // header tabel
+      doc.fontSize(11).text('No.  Produk', { continued: true }).text('  Jumlah', { align: 'right' });
+      doc.moveDown(0.2);
+
+      // isi detail
+      tx.items.forEach((it, idx) => {
+        const nama = it.nama || ('ID ' + it.produk_id);
+        doc.fontSize(10).fillColor('black').text(`${String(idx + 1).padStart(2, ' ')}. ${nama}`);
+        doc.text(`   Jumlah: ${it.jumlah}`);
+        if (it.keterangan) doc.fontSize(9).fillColor('gray').text(`      Keterangan: ${it.keterangan}`);
+        doc.fillColor('black');
+
+        // tampilkan gambar jika ada
+        if (it.gambar) {
+          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+          const imgPath = first ? path.join(__dirname, 'media', first) : null;
+          if (imgPath && fs.existsSync(imgPath)) {
+            try {
+              doc.image(imgPath, { fit: [120, 80] });
+            } catch (e) { /* abaikan error gambar */ }
+          }
+        }
+        doc.moveDown(0.3);
+      });
+
+      doc.moveDown(0.8);
+      const rightMargin = doc.page.margins?.right || 40;
+      doc.moveTo(doc.x, doc.y)
+        .lineTo(doc.page.width - rightMargin, doc.y)
+        .strokeOpacity(0.1)
+        .stroke();
+    }
+
+    doc.moveDown(0.8);
+    doc.fontSize(9).fillColor('gray')
+      .text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+
+    doc.end();
+
+  } catch (err) {
+    console.error('/export/barang-keluar/pdf error:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Gagal generate PDF Barang Keluar.');
+    }
   }
 });
 
