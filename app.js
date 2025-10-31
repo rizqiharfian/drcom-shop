@@ -83,21 +83,28 @@ app.get('/', async (req, res) => {
     const listBarangMasuk = Object.values(groupedBM);
 
     // Riwayat barang keluar (ambil bk.tanggal AS created_at)
-    const rowsBK = await q(`
-      SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS created_at,
-             bkd.produk_id, bkd.jumlah, bkd.keterangan, p.nama
-      FROM barang_keluar bk
-      LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
-      LEFT JOIN produk p ON bkd.produk_id = p.id
-      ORDER BY bk.tanggal DESC, bk.id DESC
-    `);
-    const groupedBK = {};
-    rowsBK.forEach(r => {
-      if (!r.bk_id) return;
-      if (!groupedBK[r.bk_id]) groupedBK[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, created_at: r.created_at, items: [] };
-      groupedBK[r.bk_id].items.push({ produk_id: r.produk_id, nama: r.nama, jumlah: r.jumlah, keterangan: r.keterangan });
-    });
-    const listBarangKeluar = Object.values(groupedBK);
+const rowsBK = await q(`
+  SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS created_at,
+         bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan, bkd.status, p.nama
+  FROM barang_keluar bk
+  LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
+  LEFT JOIN produk p ON bkd.produk_id = p.id
+  ORDER BY bk.tanggal DESC, bk.id DESC
+`);
+const groupedBK = {};
+rowsBK.forEach(r => {
+  if (!r.bk_id) return;
+  if (!groupedBK[r.bk_id]) groupedBK[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, created_at: r.created_at, items: [] };
+  groupedBK[r.bk_id].items.push({
+    detail_id: r.detail_id,
+    produk_id: r.produk_id,
+    nama: r.nama,
+    jumlah: r.jumlah,
+    keterangan: r.keterangan,
+    status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
+  });
+});
+const listBarangKeluar = Object.values(groupedBK);
 
     // render index dengan semua data
     res.render('index', {
@@ -1165,30 +1172,23 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
     const resBK = await q('INSERT INTO barang_keluar (tujuan) VALUES (?)', [tujuan]);
     const barangKeluarId = resBK.insertId;
 
-    for (let i = 0; i < data.length; i++) {
-      const it = data[i];
+    // bagian after insert barang_keluar and barangKeluarId obtained
+for (let i = 0; i < data.length; i++) {
+  const it = data[i];
 
-      // cek stok saat ini
-      const rows = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [it.produk_id]);
-      const cur = (rows && rows.length > 0) ? rows[0].jumlah : 0;
-      if (cur < it.jumlah) {
-        await rollback();
-        return res.status(400).send(`Stok tidak cukup untuk produk_id ${it.produk_id} (tersisa ${cur}).`);
-      }
+  // ambil file yang sesuai index i (jika ada)
+  const file = files[i];
+  const gambarFilename = file ? file.filename : null;
 
-      // ambil file yang sesuai index i (jika ada)
-      const file = files[i]; // catatan: jika user tidak upload file pada baris i, files array tetap bisa bergeser — biasanya pengguna upload sesuai baris
-      const gambarFilename = file ? file.filename : null;
+  // insert detail termasuk kolom gambar dan status = 2 (pending)
+  await q(
+    'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
+    [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
+  );
 
-      // insert detail termasuk kolom gambar
-      await q(
-        'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar) VALUES (?, ?, ?, ?, ?)',
-        [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename]
-      );
-
-      // update stock
+  // update stock
       await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [it.jumlah, it.produk_id]);
-    }
+}
 
     await commit();
     res.redirect('/');
@@ -1196,6 +1196,50 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
     console.error('POST /barang-keluar error:', err);
     try { await rollback(); } catch(_) {}
     res.status(500).send('Gagal menyimpan barang keluar.');
+  }
+});
+
+// Toggle status single detail (POST)
+// LOGIKA sekarang:
+// - Saat transaksi dibuat -> stok SUDAH dikurangi (status default 2 = pending).
+// - Toggle 2 -> 1 : artinya selesai -> KEMBALIKAN stok (add)
+// - Toggle 1 -> 2 : artinya kembali pending -> KURANGI stok lagi (cek ketersediaan)
+app.post('/barang-keluar/detail/:detailId/toggle-status', async (req, res) => {
+  try {
+    const detailId = parseInt(req.params.detailId, 10);
+    if (!detailId) return res.status(400).json({ ok: false, message: 'detailId invalid' });
+
+    const rows = await q('SELECT id, produk_id, jumlah, status FROM barang_keluar_detail WHERE id = ? LIMIT 1', [detailId]);
+    if (!rows || rows.length === 0) return res.status(404).json({ ok: false, message: 'Detail tidak ditemukan' });
+
+    const det = rows[0];
+    const curStatus = parseInt(det.status, 10) || 2;
+
+    await beginTransaction();
+
+    if (curStatus === 2) {
+      // PENDING -> SELESAI : kembalikan stok (add)
+      await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
+      await q('UPDATE barang_keluar_detail SET status = 1 WHERE id = ?', [detailId]);
+      await commit();
+      return res.json({ ok: true, newStatus: 1, message: 'Status: Selesai — stok dikembalikan.' });
+    } else {
+      // SELESAI -> PENDING : kurangi stok lagi (cek ketersediaan)
+      const srows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [det.produk_id]);
+      const curStock = (srows && srows.length) ? srows[0].jumlah : 0;
+      if (curStock < det.jumlah) {
+        await rollback();
+        return res.status(400).json({ ok: false, message: `Stok tidak cukup untuk mengembalikan ke Pending (tersisa ${curStock}).` });
+      }
+      await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
+      await q('UPDATE barang_keluar_detail SET status = 2 WHERE id = ?', [detailId]);
+      await commit();
+      return res.json({ ok: true, newStatus: 2, message: 'Status: Pending — stok dikurangi lagi.' });
+    }
+  } catch (err) {
+    console.error('POST /barang-keluar/detail/:detailId/toggle-status error:', err);
+    try { await rollback(); } catch(_) {}
+    return res.status(500).json({ ok: false, message: 'Server error' });
   }
 });
 

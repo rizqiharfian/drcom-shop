@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard Toko</title>
+  <link rel="icon" href="/drcom.png" type="image/png">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
@@ -85,7 +86,7 @@
           </div>
 
           <div class="col-md-2 d-flex align-items-end">
-            <button type="submit" class="btn btn-success w-100">Beli</button>
+            <button type="submit" class="btn btn-success w-100">Proses</button>
           </div>
         </form>
       </div>
@@ -352,21 +353,34 @@
               <td class="cell-jumlah"><%= it.jumlah %></td>
               <td class="cell-keterangan text-start"><%= it.keterangan || '-' %></td>
               <td class="cell-tanggal"><%= txDate ? new Date(txDate).toLocaleString('id-ID') : '-' %></td>
-              <td class="cell-aksi text-center">
-                <!-- Tombol lihat -->
-                <a href="/barang-keluar/<%= tx.id %>" 
-                  class="btn btn-sm btn-info me-1" 
-                  title="Lihat Barang Masuk">
-                  <i class="bi bi-eye"></i>
-                </a>
+  <td class="cell-aksi text-center">
+  <!-- Tombol lihat -->
+  <a href="/barang-keluar/<%= tx.id %>" class="btn btn-sm btn-info me-1" title="Lihat">
+    <i class="bi bi-eye"></i>
+  </a>
 
-                <!-- Tombol edit -->
-                <a href="/barang-keluar/edit/<%= tx.id %>" 
-                  class="btn btn-sm btn-warning" 
-                  title="Edit Barang Masuk">
-                  <i class="bi bi-pencil-square"></i>
-                </a>
-              </td>
+  <!-- Toggle status per item: tampil sebagai badge style (merah = pending, hijau = selesai) -->
+  <% 
+    const st = it.status == 1 ? 1 : 2;
+    const isDone = (st === 1);
+  %>
+  <button
+    type="button"
+    class="btn btn-sm me-1 btn-toggle-status <%= isDone ? 'btn-success' : 'btn-danger' %>"
+    data-detail-id="<%= it.detail_id %>"
+    title="<%= isDone ? 'Status: Selesai (klik untuk set Pending)' : 'Status: Pending (klik untuk set Selesai)' %>">
+    <% if (isDone) { %>
+      <i class="bi bi-check2"></i>
+    <% } else { %>
+      <i class="bi bi-x-lg"></i>
+    <% } %>
+  </button>
+
+  <!-- Edit transaksi -->
+  <a href="/barang-keluar/edit/<%= tx.id %>" class="btn btn-sm btn-warning" title="Edit Transaksi">
+    <i class="bi bi-pencil-square"></i>
+  </a>
+</td>
             </tr>
           <%     });
               });
@@ -754,7 +768,53 @@ document.addEventListener('click', async (ev) => {
   }
 });
 </script>
+<script>
+  document.addEventListener('click', async function(e) {
+    const btn = e.target.closest('.btn-toggle-status');
+    if (!btn) return;
 
+    const detailId = btn.dataset.detailId;
+    if (!detailId) return alert('Detail ID tidak tersedia.');
+
+    // tampilkan loading kecil
+    btn.disabled = true;
+    const oldHTML = btn.innerHTML;
+
+    try {
+      const resp = await fetch('/barang-keluar/detail/' + detailId + '/toggle-status', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        alert((data && data.message) ? data.message : 'Gagal mengubah status.');
+        return;
+      }
+
+      // update tampilan berdasarkan newStatus
+      const newStatus = data.newStatus;
+      if (newStatus === 1) {
+        // now Selesai -> hijau
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-success');
+        btn.innerHTML = '<i class="bi bi-check2"></i> <span class="d-none d-md-inline">Selesai</span>';
+        btn.title = 'Status: Selesai (klik untuk set Pending)';
+      } else {
+        // now Pending -> merah
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-danger');
+        btn.innerHTML = '<i class="bi bi-x-lg"></i> <span class="d-none d-md-inline">Pending</span>';
+        btn.title = 'Status: Pending (klik untuk set Selesai)';
+      }
+    } catch (err) {
+      console.error('toggle-status client error', err);
+      alert('Terjadi kesalahan jaringan/server.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
 
 </body>
 </html>
