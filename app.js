@@ -1063,69 +1063,163 @@ app.get('/export/barang-masuk/pdf', async (req, res) => {
       });
     });
 
+    const PDFDocument = require('pdfkit');
+    const path = require('path');
+    const fs = require('fs');
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
     res.setHeader('Content-Type', 'application/pdf');
     const fname = `barang-masuk-${start}_to_${end}.pdf`;
     res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
     doc.pipe(res);
 
-    doc.fontSize(16).text('Laporan Barang Masuk', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text(`Periode: ${start} — ${end}`, { align: 'center' });
-    doc.moveDown(1);
+    // page layout
+    const margin = doc.page.margins.left || 40;
+    const rightMargin = doc.page.margins.right || 40;
+    const pageWidth = doc.page.width;
+    const contentWidth = pageWidth - margin - rightMargin;
 
-    // iterate transactions
-    for (const key of Object.keys(grouped)) {
-      const tx = grouped[key];
-      doc.fontSize(12).fillColor('black').text(`Ref: ${tx.id}    Pengirim: ${tx.pengirim}    Tanggal: ${new Date(tx.tanggal).toLocaleString('id-ID')}`);
+    // column widths
+    const colNoW = 30;
+    const colQtyW = 60;
+    const colProdukW = contentWidth - (colNoW + colQtyW);
+
+    const lineGap = 4;
+    const headerFont = 'Helvetica-Bold';
+    const normalFont = 'Helvetica';
+
+    function writeTitleAndPeriod() {
+      doc.fontSize(16).font(headerFont).text('Laporan Barang Masuk', { align: 'center' });
       doc.moveDown(0.3);
-
-      // simple table header
-      doc.fontSize(11).text('No.  Produk', {continued: true}).text('  Jumlah', {align: 'right'});
-      doc.moveDown(0.2);
-
-      tx.items.forEach((it, idx) => {
-        // product line
-        const nama = it.nama || ('ID ' + it.produk_id);
-        doc.fontSize(10).text(`${String(idx+1).padStart(2,' ')}. ${nama}`);
-        doc.text(`   Jumlah: ${it.jumlah}`); // new line for jumlah for clarity
-        if (it.keterangan) doc.fontSize(9).fillColor('gray').text(`      Keterangan: ${it.keterangan}`);
-        doc.fillColor('black');
-        // gambar (jika ada)
-        if (it.gambar) {
-          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
-          const imgPath = first ? path.join(__dirname, 'media', first) : null;
-          if (imgPath && fs.existsSync(imgPath)) {
-            try {
-              doc.image(imgPath, { fit: [120, 80] });
-            } catch (e) { /* ignore image errors */ }
-          }
-        }
-        doc.moveDown(0.3);
-      });
-
+      doc.fontSize(10).font(normalFont).text(`Periode: ${start} — ${end}`, { align: 'center' });
       doc.moveDown(0.8);
-          // garis pemisah terakhir
-      const rightMargin = doc.page.margins?.right || 40;
-      doc.moveTo(doc.x, doc.y)
-        .lineTo(doc.page.width - rightMargin, doc.y)
-        .strokeOpacity(0.1)
-        .stroke();
-      }
-      doc.moveDown(0.8);
-      doc.fontSize(9).fillColor('gray')
-        .text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+    }
 
-      // akhiri stream (pastikan cuma sekali)
-      doc.end();
+    function drawTxnHeader(tx) {
+      // trans header
+      const hdrLine = `Ref: ${tx.id}    Pengirim: ${tx.pengirim || '-'}    Tanggal: ${tx.tanggal ? new Date(tx.tanggal).toLocaleString('id-ID') : '-'}`;
+      doc.fontSize(11).font(headerFont).text(hdrLine, margin, doc.y, { width: contentWidth });
+      doc.moveDown(0.4);
 
-    } catch (err) {
-      console.error('/export/barang-masuk/pdf error:', err);
-      // hanya kirim res.send jika stream belum ditutup
-      if (!res.headersSent) {
-        res.status(500).send('Gagal generate PDF.');
+      // column header row (fixed X)
+      const y0 = doc.y;
+      doc.fontSize(10).font(headerFont);
+      doc.text('No', margin, y0, { width: colNoW, align: 'center' });
+      doc.text('Produk', margin + colNoW, y0, { width: colProdukW, align: 'left' });
+      doc.text('Jumlah', margin + colNoW + colProdukW, y0, { width: colQtyW, align: 'center' });
+      doc.moveDown(0.6);
+      doc.font(normalFont);
+    }
+
+    function needNewPageFor(heightNeeded, tx) {
+      const bottomLimit = doc.page.height - (doc.page.margins.bottom || 40) - 40;
+      if (doc.y + heightNeeded > bottomLimit) {
+        doc.addPage();
+        // redraw title (optional, keep on top of subsequent pages)
+        writeTitleAndPeriod();
+        // re-draw current transaction header on new page
+        drawTxnHeader(tx);
       }
     }
+
+    // start
+    writeTitleAndPeriod();
+
+    for (const key of Object.keys(grouped)) {
+      const tx = grouped[key];
+      drawTxnHeader(tx);
+
+      // iterate items with fixed column X positions and consistent row heights
+      for (let idx = 0; idx < tx.items.length; idx++) {
+        const it = tx.items[idx];
+
+        // compute text heights
+        doc.fontSize(10).font(normalFont);
+        const produkNameH = doc.heightOfString(it.nama || ('ID ' + it.produk_id), { width: colProdukW });
+        const ketH = it.keterangan ? doc.heightOfString('Keterangan: ' + it.keterangan, { width: colProdukW }) : 0;
+
+        // compute image height if exists
+        let imgH = 0;
+        let imgPath = null;
+        if (it.gambar) {
+          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+          if (first) {
+            const candidate = path.join(__dirname, 'media', first);
+            if (fs.existsSync(candidate)) {
+              imgPath = candidate;
+              // we'll fit image to max width (120) and compute height ratio
+              try {
+                // try to estimate image size (PDFKit doesn't provide metadata easily) -> use fixed fit height
+                imgH = 100; // reasonable thumbnail height
+              } catch (e) {
+                imgH = 0;
+              }
+            }
+          }
+        }
+
+        const rowPadding = 26;
+        const textBlockHeight = produkNameH + (ketH ? (ketH + 4) : 0);
+        const rowHeight = Math.max(textBlockHeight, imgH, 12) + rowPadding;
+
+        needNewPageFor(rowHeight + 20, tx);
+
+        const y = doc.y;
+
+        // No
+        doc.fontSize(10).font(normalFont).text(String(idx + 1), margin, y, { width: colNoW, align: 'center' });
+
+        // Produk (name + keterangan below)
+        const prodX = margin + colNoW;
+        let cursorY = y;
+        doc.text(it.nama || ('ID ' + it.produk_id), prodX, cursorY, { width: colProdukW, align: 'left' });
+        cursorY = doc.y;
+        if (it.keterangan) {
+          doc.fontSize(9).fillColor('gray').text('Keterangan: ' + it.keterangan, prodX, cursorY, { width: colProdukW, align: 'left' });
+          doc.fillColor('black');
+        }
+
+        // if image exist, draw it below text (inside produk column)
+        if (imgPath) {
+          // place image at left of product column, below existing text
+          const imgX = prodX;
+          // ensure small gap
+          const imgY = Math.max(y + textBlockHeight + 4, doc.y + 2);
+          try {
+            doc.image(imgPath, imgX, imgY, { fit: [100, imgH] });
+          } catch (e) {
+            // ignore image errors
+          }
+        }
+
+        // Jumlah
+        const qtyX = margin + colNoW + colProdukW;
+        doc.fontSize(10).text(String(it.jumlah ?? '-'), qtyX, y, { width: colQtyW, align: 'center' });
+
+        // advance y by rowHeight
+        doc.y = y + rowHeight;
+        doc.moveDown(0.2);
+      }
+
+      // after items, draw a separator and a bit of space
+      doc.moveDown(0.4);
+      doc.save();
+      doc.lineWidth(0.5).strokeColor('#DDDDDD');
+      doc.moveTo(margin, doc.y).lineTo(pageWidth - rightMargin, doc.y).stroke();
+      doc.restore();
+      doc.moveDown(0.8);
+    }
+
+    // footer
+    doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+
+    doc.end();
+  } catch (err) {
+    console.error('/export/barang-masuk/pdf error (improved):', err);
+    if (!res.headersSent) {
+      res.status(500).send('Gagal generate PDF Barang Masuk.');
+    }
+  }
 });
 
 
@@ -1199,12 +1293,9 @@ for (let i = 0; i < data.length; i++) {
   }
 });
 
-// Toggle status single detail (POST)
-// LOGIKA sekarang:
-// - Saat transaksi dibuat -> stok SUDAH dikurangi (status default 2 = pending).
-// - Toggle 2 -> 1 : artinya selesai -> KEMBALIKAN stok (add)
-// - Toggle 1 -> 2 : artinya kembali pending -> KURANGI stok lagi (cek ketersediaan)
-app.post('/barang-keluar/detail/:detailId/toggle-status', async (req, res) => {
+// POST /barang-keluar/detail/:detailId/complete
+// Ubah status dari 2 (pending) -> 1 (selesai). Setelah selesai tidak bisa di-undo lewat route ini.
+app.post('/barang-keluar/detail/:detailId/complete', async (req, res) => {
   try {
     const detailId = parseInt(req.params.detailId, 10);
     if (!detailId) return res.status(400).json({ ok: false, message: 'detailId invalid' });
@@ -1215,29 +1306,20 @@ app.post('/barang-keluar/detail/:detailId/toggle-status', async (req, res) => {
     const det = rows[0];
     const curStatus = parseInt(det.status, 10) || 2;
 
-    await beginTransaction();
-
-    if (curStatus === 2) {
-      // PENDING -> SELESAI : kembalikan stok (add)
-      await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
-      await q('UPDATE barang_keluar_detail SET status = 1 WHERE id = ?', [detailId]);
-      await commit();
-      return res.json({ ok: true, newStatus: 1, message: 'Status: Selesai — stok dikembalikan.' });
-    } else {
-      // SELESAI -> PENDING : kurangi stok lagi (cek ketersediaan)
-      const srows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [det.produk_id]);
-      const curStock = (srows && srows.length) ? srows[0].jumlah : 0;
-      if (curStock < det.jumlah) {
-        await rollback();
-        return res.status(400).json({ ok: false, message: `Stok tidak cukup untuk mengembalikan ke Pending (tersisa ${curStock}).` });
-      }
-      await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
-      await q('UPDATE barang_keluar_detail SET status = 2 WHERE id = ?', [detailId]);
-      await commit();
-      return res.json({ ok: true, newStatus: 2, message: 'Status: Pending — stok dikurangi lagi.' });
+    if (curStatus === 1) {
+      // Sudah selesai — tidak boleh di-undo melalui endpoint ini
+      return res.status(400).json({ ok: false, message: 'Sudah berstatus Selesai.' });
     }
+
+    // lakukan update: set selesai + kembalikan stok
+    await beginTransaction();
+    await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
+    await q('UPDATE barang_keluar_detail SET status = 1 WHERE id = ?', [detailId]);
+    await commit();
+
+    return res.json({ ok: true, newStatus: 1, message: 'Status diubah menjadi Selesai; stok dikembalikan.' });
   } catch (err) {
-    console.error('POST /barang-keluar/detail/:detailId/toggle-status error:', err);
+    console.error('POST /barang-keluar/detail/:detailId/complete error:', err);
     try { await rollback(); } catch(_) {}
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
@@ -1402,22 +1484,20 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
   }
 });
 
-// ===================== EXPORT PDF: BARANG KELUAR (by date range) =====================
+// ===================== EXPORT PDF: BARANG KELUAR (rapih, with status column) =====================
 app.get('/export/barang-keluar/pdf', async (req, res) => {
   try {
     const start = req.query.start;
     const end = req.query.end;
     if (!start || !end) return res.status(400).send('Parameter start & end required (YYYY-MM-DD).');
 
-    // validasi format tanggal
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
       return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD.');
     }
 
-    // Ambil semua transaksi barang_keluar dalam rentang tanggal
     const rows = await q(`
       SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal,
-             bkd.id AS detail_id, bkd.produk_id, bkd.jumlah AS qty, bkd.keterangan, bkd.gambar,
+             bkd.id AS detail_id, bkd.produk_id, bkd.jumlah AS qty, bkd.keterangan, bkd.gambar, bkd.status,
              p.nama AS produk_nama
       FROM barang_keluar bk
       LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
@@ -1430,7 +1510,7 @@ app.get('/export/barang-keluar/pdf', async (req, res) => {
       return res.status(404).send('Tidak ada data Barang Keluar pada rentang tanggal tersebut.');
     }
 
-    // group by bk_id
+    // group by transaksi
     const grouped = {};
     rows.forEach(r => {
       if (!grouped[r.bk_id]) grouped[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, tanggal: r.tanggal, items: [] };
@@ -1440,73 +1520,171 @@ app.get('/export/barang-keluar/pdf', async (req, res) => {
         nama: r.produk_nama,
         jumlah: r.qty,
         keterangan: r.keterangan,
-        gambar: r.gambar
+        gambar: r.gambar,
+        status: (typeof r.status !== 'undefined' && r.status !== null) ? Number(r.status) : 2
       });
     });
 
-    // buat PDF
     const PDFDocument = require('pdfkit');
     const path = require('path');
     const fs = require('fs');
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
     res.setHeader('Content-Type', 'application/pdf');
     const fname = `barang-keluar-${start}_to_${end}.pdf`;
     res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
     doc.pipe(res);
 
-    doc.fontSize(16).text('Laporan Barang Keluar', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text(`Periode: ${start} — ${end}`, { align: 'center' });
-    doc.moveDown(1);
+    // page layout
+    const margin = doc.page.margins.left || 40;
+    const rightMargin = doc.page.margins.right || 40;
+    const pageWidth = doc.page.width;
+    const contentWidth = pageWidth - margin - rightMargin;
 
-    // iterasi transaksi
-    for (const key of Object.keys(grouped)) {
-      const tx = grouped[key];
-      doc.fontSize(12).fillColor('black')
-        .text(`Ref: ${tx.id}    Tujuan: ${tx.tujuan}    Tanggal: ${new Date(tx.tanggal).toLocaleString('id-ID')}`);
+    // column widths
+    const colNoW = 30;
+    const colQtyW = 60;
+    const colStatusW = 80;
+    const colProdukW = contentWidth - (colNoW + colQtyW + colStatusW);
+
+    const lineGap = 4;
+    const headerFont = 'Helvetica-Bold';
+    const normalFont = 'Helvetica';
+
+    function writeTitleAndPeriod() {
+      doc.fontSize(16).font(headerFont).text('Laporan Barang Keluar', { align: 'center' });
       doc.moveDown(0.3);
-
-      // header tabel
-      doc.fontSize(11).text('No.  Produk', { continued: true }).text('  Jumlah', { align: 'right' });
-      doc.moveDown(0.2);
-
-      // isi detail
-      tx.items.forEach((it, idx) => {
-        const nama = it.nama || ('ID ' + it.produk_id);
-        doc.fontSize(10).fillColor('black').text(`${String(idx + 1).padStart(2, ' ')}. ${nama}`);
-        doc.text(`   Jumlah: ${it.jumlah}`);
-        if (it.keterangan) doc.fontSize(9).fillColor('gray').text(`      Keterangan: ${it.keterangan}`);
-        doc.fillColor('black');
-
-        // tampilkan gambar jika ada
-        if (it.gambar) {
-          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
-          const imgPath = first ? path.join(__dirname, 'media', first) : null;
-          if (imgPath && fs.existsSync(imgPath)) {
-            try {
-              doc.image(imgPath, { fit: [120, 80] });
-            } catch (e) { /* abaikan error gambar */ }
-          }
-        }
-        doc.moveDown(0.3);
-      });
-
+      doc.fontSize(10).font(normalFont).text(`Periode: ${start} — ${end}`, { align: 'center' });
       doc.moveDown(0.8);
-      const rightMargin = doc.page.margins?.right || 40;
-      doc.moveTo(doc.x, doc.y)
-        .lineTo(doc.page.width - rightMargin, doc.y)
-        .strokeOpacity(0.1)
-        .stroke();
     }
 
-    doc.moveDown(0.8);
-    doc.fontSize(9).fillColor('gray')
-      .text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+    function drawTxnHeader(tx) {
+      // trans header
+      const hdrLine = `Ref: ${tx.id}    Tujuan: ${tx.tujuan || '-'}    Tanggal: ${tx.tanggal ? new Date(tx.tanggal).toLocaleString('id-ID') : '-'}`;
+      doc.fontSize(11).font(headerFont).text(hdrLine, margin, doc.y, { width: contentWidth });
+      doc.moveDown(0.4);
+
+      // column header row (fixed X)
+      const y0 = doc.y;
+      doc.fontSize(10).font(headerFont);
+      doc.text('No', margin, y0, { width: colNoW, align: 'center' });
+      doc.text('Produk', margin + colNoW, y0, { width: colProdukW, align: 'left' });
+      doc.text('Jumlah', margin + colNoW + colProdukW, y0, { width: colQtyW, align: 'center' });
+      doc.text('Status', margin + colNoW + colProdukW + colQtyW, y0, { width: colStatusW, align: 'center' });
+      doc.moveDown(0.6);
+      doc.font(normalFont);
+    }
+
+    function needNewPageFor(heightNeeded, tx) {
+      const bottomLimit = doc.page.height - (doc.page.margins.bottom || 40) - 40;
+      if (doc.y + heightNeeded > bottomLimit) {
+        doc.addPage();
+        // redraw title (optional, keep on top of subsequent pages)
+        writeTitleAndPeriod();
+        // re-draw current transaction header on new page
+        drawTxnHeader(tx);
+      }
+    }
+
+    // start
+    writeTitleAndPeriod();
+
+    for (const key of Object.keys(grouped)) {
+      const tx = grouped[key];
+      drawTxnHeader(tx);
+
+      // iterate items with fixed column X positions and consistent row heights
+      for (let idx = 0; idx < tx.items.length; idx++) {
+        const it = tx.items[idx];
+
+        // compute text heights
+        doc.fontSize(10).font(normalFont);
+        const produkNameH = doc.heightOfString(it.nama || ('ID ' + it.produk_id), { width: colProdukW });
+        const ketH = it.keterangan ? doc.heightOfString('Keterangan: ' + it.keterangan, { width: colProdukW }) : 0;
+
+        // compute image height if exists
+        let imgH = 0;
+        let imgPath = null;
+        if (it.gambar) {
+          const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+          if (first) {
+            const candidate = path.join(__dirname, 'media', first);
+            if (fs.existsSync(candidate)) {
+              imgPath = candidate;
+              // we'll fit image to max width (120) and compute height ratio
+              try {
+                // try to estimate image size (PDFKit doesn't provide metadata easily) -> use fixed fit height
+                imgH = 100; // reasonable thumbnail height
+              } catch (e) {
+                imgH = 0;
+              }
+            }
+          }
+        }
+
+        const rowPadding = 26;
+        const textBlockHeight = produkNameH + (ketH ? (ketH + 4) : 0);
+        const rowHeight = Math.max(textBlockHeight, imgH, 16) + rowPadding;
+
+        needNewPageFor(rowHeight + 20, tx);
+
+        const y = doc.y;
+
+        // No
+        doc.fontSize(10).font(normalFont).text(String(idx + 1), margin, y, { width: colNoW, align: 'center' });
+
+        // Produk (name + keterangan below)
+        const prodX = margin + colNoW;
+        let cursorY = y;
+        doc.text(it.nama || ('ID ' + it.produk_id), prodX, cursorY, { width: colProdukW, align: 'left' });
+        cursorY = doc.y;
+        if (it.keterangan) {
+          doc.fontSize(9).fillColor('gray').text('Keterangan: ' + it.keterangan, prodX, cursorY, { width: colProdukW, align: 'left' });
+          doc.fillColor('black');
+        }
+
+        // if image exist, draw it below text (inside produk column)
+        if (imgPath) {
+          // place image at left of product column, below existing text
+          const imgX = prodX;
+          // ensure small gap
+          const imgY = Math.max(y + textBlockHeight + 4, doc.y + 2);
+          try {
+            doc.image(imgPath, imgX, imgY, { fit: [100, imgH] });
+          } catch (e) {
+            // ignore image errors
+          }
+        }
+
+        // Jumlah
+        const qtyX = margin + colNoW + colProdukW;
+        doc.fontSize(10).text(String(it.jumlah ?? '-'), qtyX, y, { width: colQtyW, align: 'center' });
+
+        // Status
+        const statusX = margin + colNoW + colProdukW + colQtyW;
+        const statusLabel = (it.status === 1) ? 'Selesai' : 'Pending';
+        doc.text(statusLabel, statusX, y, { width: colStatusW, align: 'center' });
+
+        // advance y by rowHeight
+        doc.y = y + rowHeight;
+        doc.moveDown(0.2);
+      }
+
+      // after items, draw a separator and a bit of space
+      doc.moveDown(0.4);
+      doc.save();
+      doc.lineWidth(0.5).strokeColor('#DDDDDD');
+      doc.moveTo(margin, doc.y).lineTo(pageWidth - rightMargin, doc.y).stroke();
+      doc.restore();
+      doc.moveDown(0.8);
+    }
+
+    // footer
+    doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
 
     doc.end();
-
   } catch (err) {
-    console.error('/export/barang-keluar/pdf error:', err);
+    console.error('/export/barang-keluar/pdf error (improved):', err);
     if (!res.headersSent) {
       res.status(500).send('Gagal generate PDF Barang Keluar.');
     }

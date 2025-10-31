@@ -359,25 +359,29 @@
     <i class="bi bi-eye"></i>
   </a>
 
-  <!-- Toggle status per item: tampil sebagai badge style (merah = pending, hijau = selesai) -->
   <% 
     const st = it.status == 1 ? 1 : 2;
     const isDone = (st === 1);
   %>
-  <button
-    type="button"
-    class="btn btn-sm me-1 btn-toggle-status <%= isDone ? 'btn-success' : 'btn-danger' %>"
-    data-detail-id="<%= it.detail_id %>"
-    title="<%= isDone ? 'Status: Selesai (klik untuk set Pending)' : 'Status: Pending (klik untuk set Selesai)' %>">
-    <% if (isDone) { %>
-      <i class="bi bi-check2"></i>
-    <% } else { %>
-      <i class="bi bi-x-lg"></i>
-    <% } %>
-  </button>
 
-  <!-- Edit transaksi -->
-  <a href="/barang-keluar/edit/<%= tx.id %>" class="btn btn-sm btn-warning" title="Edit Transaksi">
+  <% if (isDone) { %>
+    <!-- Selesai: badge hijau, disabled (tidak bisa diklik) -->
+    <button type="button" class="btn btn-sm btn-success me-1" disabled title="Selesai">
+      <i class="bi bi-check2"></i>
+    </button>
+  <% } else { %>
+    <!-- Pending: merah, bisa diklik untuk menyelesaikannya -->
+    <button
+      type="button"
+      class="btn btn-sm me-1 btn-complete btn-danger"
+      data-detail-id="<%= it.detail_id %>"
+      title="Pending — klik untuk tandai selesai (stok akan dikembalikan)">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  <% } %>
+
+  <!-- Edit Transaksi -->
+  <a href="/barang-keluar/edit/<%= tx.id %>" class="btn btn-sm btn-warning" title="Edit">
     <i class="bi bi-pencil-square"></i>
   </a>
 </td>
@@ -770,48 +774,43 @@ document.addEventListener('click', async (ev) => {
 </script>
 <script>
   document.addEventListener('click', async function(e) {
-    const btn = e.target.closest('.btn-toggle-status');
+    const btn = e.target.closest('.btn-complete');
     if (!btn) return;
 
     const detailId = btn.dataset.detailId;
     if (!detailId) return alert('Detail ID tidak tersedia.');
 
-    // tampilkan loading kecil
+    if (!confirm('Tandai item ini SELESAI? (stok akan dikembalikan)')) return;
+
     btn.disabled = true;
-    const oldHTML = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
 
     try {
-      const resp = await fetch('/barang-keluar/detail/' + detailId + '/toggle-status', {
+      const resp = await fetch('/barang-keluar/detail/' + detailId + '/complete', {
         method: 'POST',
         headers: { 'Accept': 'application/json' }
       });
-      const data = await resp.json();
 
+      const data = await resp.json();
       if (!resp.ok) {
-        alert((data && data.message) ? data.message : 'Gagal mengubah status.');
+        alert((data && data.message) ? data.message : 'Gagal menyelesaikan item.');
+        btn.disabled = false;
+        // restore label if needed
+        btn.innerHTML = '<i class="bi bi-x-lg"></i> <span class="d-none d-md-inline">Pending</span>';
         return;
       }
 
-      // update tampilan berdasarkan newStatus
-      const newStatus = data.newStatus;
-      if (newStatus === 1) {
-        // now Selesai -> hijau
-        btn.classList.remove('btn-danger');
-        btn.classList.add('btn-success');
-        btn.innerHTML = '<i class="bi bi-check2"></i> <span class="d-none d-md-inline">Selesai</span>';
-        btn.title = 'Status: Selesai (klik untuk set Pending)';
-      } else {
-        // now Pending -> merah
-        btn.classList.remove('btn-success');
-        btn.classList.add('btn-danger');
-        btn.innerHTML = '<i class="bi bi-x-lg"></i> <span class="d-none d-md-inline">Pending</span>';
-        btn.title = 'Status: Pending (klik untuk set Selesai)';
-      }
+      // sukses -> ubah UI: jadikan hijau & disabled
+      btn.classList.remove('btn-danger');
+      btn.classList.add('btn-success');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="bi bi-check2"></i> <span class="d-none d-md-inline">Selesai</span>';
+      btn.title = 'Selesai';
     } catch (err) {
-      console.error('toggle-status client error', err);
+      console.error('complete client error', err);
       alert('Terjadi kesalahan jaringan/server.');
-    } finally {
       btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-x-lg"></i> <span class="d-none d-md-inline">Pending</span>';
     }
   });
 </script>
