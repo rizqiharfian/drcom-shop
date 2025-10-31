@@ -53,6 +53,7 @@
         <div class="col produk-card"
              data-nama="<%= (p.nama || '').toLowerCase() %>"
              data-ket="<%= (p.keterangan || '').toLowerCase() %>"
+             data-pos="<%= (p.posisi || '').toLowerCase() %>"
              data-brand-id="<%= p.brand_id ?? '' %>"
              data-brand-name="<%= (p.brand_name || '').toLowerCase() %>">
           <div class="card h-100 text-center shadow-sm">
@@ -72,7 +73,8 @@
                 <% if (p.brand_name) { %>
                   <small class="text-muted">Merk: <strong><%= p.brand_name %></strong></small><br>
                 <% } %>
-                Stok: <strong><%= p.jumlah_stok %></strong>
+                Stok: <strong><%= p.jumlah_stok %></strong><br>
+                Posisi: <strong><%= p.posisi || '-' %></strong>
               </div>
               <div class="card-actions">
                 <!-- Lihat (show) -->
@@ -133,6 +135,11 @@
               <div class="form-text">Masukkan jumlah stok awal. Jika produk sudah ada stok, nilai ini akan <strong>ditambahkan</strong> ke stok yang ada.</div>
             </div>
 
+            <div class="mb-3">
+              <label class="form-label">Posisi (lokasi unit)</label>
+              <input type="text" name="posisi" class="form-control" placeholder="Contoh: Rak A-3 / Gudang 2" />
+            </div>
+
             <div class="form-text">Catatan: gambar akan disimpan ke folder <code>/media</code>. Jika tidak upload gambar, akan pakai default.</div>
           </div>
 
@@ -177,8 +184,9 @@
         const ket = c.dataset.ket || '';
         const brandId = (c.dataset.brandId || '').toString();
         const brandName = (c.dataset.brandName || '').toLowerCase();
+        const pos = (c.dataset.pos || '').toLowerCase();
 
-        const matchesSearch = !q || nama.includes(q) || ket.includes(q) || brandName.includes(q);
+        const matchesSearch = !q || nama.includes(q) || ket.includes(q) || brandName.includes(q) || pos.includes(q);
         const matchesBrand = !activeBrandId || (brandId && brandId === activeBrandId);
 
         c.style.display = (matchesSearch && matchesBrand) ? '' : 'none';

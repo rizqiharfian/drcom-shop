@@ -436,6 +436,7 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
     const nama = (req.body.nama || '').trim();
     const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
     const stokAwal = parseInt(req.body.stok_awal, 10) || 0;
+    const posisi = req.body.posisi ? (req.body.posisi.trim() || null) : null;
     const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
 
     if (!nama) return res.status(400).send('Nama produk wajib diisi.');
@@ -449,7 +450,7 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
     }
 
     // insert produk
-    const ins = await q('INSERT INTO produk (nama, gambar, keterangan, brand_id) VALUES (?, ?, ?, ?)', [nama, gambarField, keterangan, brand_id]);
+    const ins = await q('INSERT INTO produk (nama, gambar, keterangan, posisi, brand_id) VALUES (?, ?, ?, ?, ?)', [nama, gambarField, keterangan, posisi, brand_id]);
     const newId = ins.insertId;
 
     // insert atau update stock: tambahkan stokAwal jika >0
@@ -499,7 +500,7 @@ app.get('/produk', async (req, res) => {
       ORDER BY produk.nama ASC
     `;
     const results = await q(sql);
-    const produk = results.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [], brand_name: p.brand_name ?? null }));
+    const produk = results.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [], brand_name: p.brand_name ?? null, posisi: p.posisi ?? null }));
     // ambil brands untuk filter (jika ada tabel brand)
     const brands = brandTableExists ? await q('SELECT id, ' + (brandColumn || 'nama') + ' AS name FROM brand ORDER BY ' + (brandColumn || 'nama') + ' ASC') : [];
     res.render('produk', { produk, brands });
@@ -536,7 +537,7 @@ app.get('/produk/:id', async (req, res) => {
 
     const p = rows[0];
     p.gambar_list = p.gambar ? p.gambar.split(',') : [];
-    // pastikan brand_name tersedia (atau null)
+    p.posisi = p.posisi ?? null;
     p.brand_name = p.brand_name ?? null;
 
     // juga ambil stok saat ini supaya edit view bisa tampilkan
@@ -623,7 +624,7 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
     const nama = (req.body.nama || '').trim();
     const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
     const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
-    // stok_change: angka positif menambah, negatif mengurangi
+    const posisi = req.body.posisi ? (req.body.posisi.trim() || null) : null;
     const stokChange = req.body.stok_change ? parseInt(req.body.stok_change, 10) : 0;
 
     if (!nama) return res.status(400).send('Nama produk wajib diisi.');
@@ -640,7 +641,7 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
     }
 
     // update produk
-    await q('UPDATE produk SET nama = ?, keterangan = ?, gambar = ?, brand_id = ? WHERE id = ?', [nama, keterangan, currentGambar, brand_id, id]);
+    await q('UPDATE produk SET nama = ?, keterangan = ?, gambar = ?, brand_id = ?, posisi = ? WHERE id = ?', [nama, keterangan, currentGambar, brand_id, posisi, id]);
 
     // update stock jika ada perubahan stok
     if (stokChange !== 0) {

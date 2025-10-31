@@ -23,6 +23,7 @@
             <p class="text-muted"><%= p.brand_name ? 'Merk: ' + p.brand_name : '' %></p>
             <p><%= p.keterangan || '-' %></p>
             <p><strong>Stok:</strong> <%= p.jumlah_stok %></p>
+            <p class="mb-1"><strong>Posisi:</strong> <%= p.posisi || '-' %></p>
             <div class="mt-3">
               <a href="/produk/<%= p.id %>/edit" class="btn btn-warning">Edit</a>
               <a href="/produk" class="btn btn-secondary">Kembali ke daftar</a>
