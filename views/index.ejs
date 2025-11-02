@@ -49,9 +49,34 @@
 
   <div class="container mb-5">
 
-    <!-- GLOBAL SEARCH -->
-    <div class="search-bar">
-      <input id="globalSearch" type="search" class="form-control form-control-lg" placeholder="Cari produk / ID / customer / pengirim / tujuan..." />
+    <!-- GLOBAL SEARCH + EXPORT ALL (letakkan di area search) -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="search-bar flex-grow-1 me-2">
+        <input id="globalSearch" type="search" class="form-control form-control-lg" placeholder="Cari produk / ID / customer / pengirim / tujuan..." />
+      </div>
+
+      <!-- Export Semua (dropdown) -->
+      <div class="btn-group">
+        <button id="exportAllBtn" type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-file-earmark-pdf"></i> Export Semua
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width:240px;">
+          <li><a class="dropdown-item" href="#" id="exportAll_today">Hari ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportAll_week">Minggu ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportAll_month">Bulan ini</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li class="px-2">
+            <label class="form-label small mb-1">Custom range</label>
+            <div class="d-flex gap-1">
+              <input type="date" id="exportAll_start" class="form-control form-control-sm">
+              <input type="date" id="exportAll_end" class="form-control form-control-sm">
+            </div>
+            <div class="text-end mt-1">
+              <button id="exportAll_custom" class="btn btn-sm btn-primary">Export</button>
+            </div>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- FORM -->
@@ -813,6 +838,70 @@ document.addEventListener('click', async (ev) => {
       btn.innerHTML = '<i class="bi bi-x-lg"></i> <span class="d-none d-md-inline">Pending</span>';
     }
   });
+</script>
+<script>
+  // helper: format date yyyy-mm-dd
+  function toYMD(d) {
+    const pad = n => (n < 10 ? '0' + n : '' + n);
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+  }
+
+  // compute week start (Monday) and end (Sunday)
+  function weekRange(d) {
+    const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const day = (date.getDay() + 6) % 7; // Monday = 0
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - day);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { start: toYMD(monday), end: toYMD(sunday) };
+  }
+
+  // open export url in new tab. route: /export/all/pdf?start=YYYY-MM-DD&end=YYYY-MM-DD
+  function openExportAll(start, end) {
+    if (!start || !end) return alert('Range belum lengkap.');
+    const url = `/export/all/pdf?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    window.open(url, '_blank');
+  }
+
+  // attach listeners (works with or without jQuery)
+  (function(){
+    const el = id => document.getElementById(id);
+
+    // today
+    el('exportAll_today').addEventListener('click', function(e){
+      e.preventDefault();
+      const today = toYMD(new Date());
+      openExportAll(today, today);
+    });
+
+    // week
+    el('exportAll_week').addEventListener('click', function(e){
+      e.preventDefault();
+      const r = weekRange(new Date());
+      openExportAll(r.start, r.end);
+    });
+
+    // month
+    el('exportAll_month').addEventListener('click', function(e){
+      e.preventDefault();
+      const now = new Date();
+      const start = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-01';
+      const endDate = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+      const end = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(endDate).padStart(2,'0');
+      openExportAll(start, end);
+    });
+
+    // custom
+    el('exportAll_custom').addEventListener('click', function(e){
+      e.preventDefault();
+      const s = el('exportAll_start').value;
+      const eD = el('exportAll_end').value;
+      if (!s || !eD) return alert('Pilih tanggal mulai dan akhir.');
+      if (s > eD) return alert('Tanggal mulai harus <= tanggal akhir.');
+      openExportAll(s, eD);
+    });
+  })();
 </script>
 
 </body>

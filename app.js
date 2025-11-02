@@ -318,8 +318,8 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     const PDFDocument = require('pdfkit');
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="laporan_pembelian_${start}_to_${end}.pdf"`);
+    res.setHeader('Content-Type', 'application/Laporan-Pembelian');
+    res.setHeader('Content-Disposition', `inline; filename="Laporan_Pembelian_${start}_to_${end}.pdf"`);
     doc.pipe(res);
 
     const margin = 40;
@@ -1068,9 +1068,8 @@ app.get('/export/barang-masuk/pdf', async (req, res) => {
     const fs = require('fs');
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    res.setHeader('Content-Type', 'application/pdf');
-    const fname = `barang-masuk-${start}_to_${end}.pdf`;
-    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
+    res.setHeader('Content-Type', 'application/Laporan-Barang-Masuk');
+    res.setHeader('Content-Disposition', `filename="Laporan_Barang_Masuk_${start}_to_${end}.pdf`);
     doc.pipe(res);
 
     // page layout
@@ -1530,9 +1529,8 @@ app.get('/export/barang-keluar/pdf', async (req, res) => {
     const fs = require('fs');
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    res.setHeader('Content-Type', 'application/pdf');
-    const fname = `barang-keluar-${start}_to_${end}.pdf`;
-    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
+    res.setHeader('Content-Type', 'application/Laporan-Barang-Keluar');
+    res.setHeader('Content-Disposition', `filename="Laporan_Barang_Keluar_${start}_to_${end}.pdf`);
     doc.pipe(res);
 
     // page layout
@@ -1763,6 +1761,409 @@ app.get('/list-barang-keluar', async (req, res) => {
   } catch (err) {
     console.error('GET /list-barang-keluar error:', err);
     res.status(500).send('Gagal mengambil list barang keluar.');
+  }
+});
+// ===================== EXPORT ALL HISTORIES (Pembelian + Barang Masuk + Barang Keluar) =====================
+app.get('/export/all/pdf', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+
+    // helper validate date format if provided
+    const hasRange = !!(start && end);
+    if (hasRange) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+        return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD untuk start & end.');
+      }
+    }
+
+    // build WHERE clause (inclusive) if range given
+    const dateWhere = hasRange ? 'WHERE DATE(tanggal) BETWEEN ? AND ?' : '';
+
+    // 1) Pembelian
+    const pembelianSql = `
+      SELECT p.id, p.customer, p.jumlah, p.keterangan, p.tanggal, pr.nama AS produk_nama, p.status
+      FROM pembelian p
+      LEFT JOIN produk pr ON p.produk_id = pr.id
+      ${dateWhere ? dateWhere.replace(/tanggal/g, 'p.tanggal') : ''}
+      ORDER BY p.tanggal ASC
+    `;
+    const pembelianRows = hasRange ? await q(pembelianSql, [start, end]) : await q(pembelianSql);
+
+    // 2) Barang Masuk (join detail)
+    const bmSql = `
+      SELECT bm.id AS bm_id, bm.pengirim, bm.tanggal AS tanggal, 
+             bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.keterangan AS detail_ket, p.nama AS produk_nama, bmd.gambar
+      FROM barang_masuk bm
+      LEFT JOIN barang_masuk_detail bmd ON bm.id = bmd.barang_masuk_id
+      LEFT JOIN produk p ON bmd.produk_id = p.id
+      ${dateWhere ? dateWhere.replace(/tanggal/g, 'bm.tanggal') : ''}
+      ORDER BY bm.tanggal ASC, bm.id ASC
+    `;
+    const bmRows = hasRange ? await q(bmSql, [start, end]) : await q(bmSql);
+
+    // group barang masuk by bm_id (preserve insertion order)
+    const groupedBM = {};
+    const bmOrder = [];
+    (bmRows || []).forEach(r => {
+      if (!groupedBM[r.bm_id]) {
+        groupedBM[r.bm_id] = { id: r.bm_id, pengirim: r.pengirim, tanggal: r.tanggal, items: [] };
+        bmOrder.push(r.bm_id);
+      }
+      groupedBM[r.bm_id].items.push({
+        detail_id: r.detail_id,
+        produk_id: r.produk_id,
+        nama: r.produk_nama,
+        jumlah: r.jumlah,
+        keterangan: r.detail_ket,
+        gambar: r.gambar
+      });
+    });
+
+    // 3) Barang Keluar (join detail)
+    const bkSql = `
+      SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS tanggal,
+             bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan AS detail_ket, bkd.gambar, bkd.status,
+             p.nama AS produk_nama
+      FROM barang_keluar bk
+      LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
+      LEFT JOIN produk p ON bkd.produk_id = p.id
+      ${dateWhere ? dateWhere.replace(/tanggal/g, 'bk.tanggal') : ''}
+      ORDER BY bk.tanggal ASC, bk.id ASC
+    `;
+    const bkRows = hasRange ? await q(bkSql, [start, end]) : await q(bkSql);
+
+    // group barang keluar by bk_id (preserve insertion order)
+    const groupedBK = {};
+    const bkOrder = [];
+    (bkRows || []).forEach(r => {
+      if (!groupedBK[r.bk_id]) {
+        groupedBK[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, tanggal: r.tanggal, items: [] };
+        bkOrder.push(r.bk_id);
+      }
+      groupedBK[r.bk_id].items.push({
+        detail_id: r.detail_id,
+        produk_id: r.produk_id,
+        nama: r.produk_nama,
+        jumlah: r.jumlah,
+        keterangan: r.detail_ket,
+        gambar: r.gambar,
+        status: (typeof r.status !== 'undefined' && r.status !== null) ? Number(r.status) : 2
+      });
+    });
+
+    // 4) Prepare PDF
+    const PDFDocument = require('pdfkit');
+    const path = require('path');
+    const fs = require('fs');
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    const fname = `all_history_${ hasRange ? `${start}_to_${end}` : 'all' }.pdf`;
+    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
+    doc.pipe(res);
+
+    // layout helpers
+    const margin = doc.page.margins.left || 40;
+    const rightMargin = doc.page.margins.right || 40;
+    const pageWidth = doc.page.width;
+    const contentWidth = pageWidth - margin - rightMargin;
+
+    function writeMainTitle() {
+      doc.fontSize(16).font('Helvetica-Bold').text('Laporan Semua Riwayat', { align: 'center' });
+      doc.moveDown(0.2);
+      doc.fontSize(10).font('Helvetica').text(hasRange ? `Periode: ${start} — ${end}` : 'Periode: Semua', { align: 'center' });
+      doc.moveDown(0.8);
+    }
+
+    // draw page header + optionally section title - used after addPage
+    function drawPageHeader(sectionTitle) {
+      // if first line in page, write main title only once (we'll call writeMainTitle on first page before drawPageHeader)
+      if (sectionTitle) {
+        doc.fontSize(15).font('Helvetica-Bold').text(sectionTitle, margin, doc.y);
+        doc.moveDown(0.4);
+      }
+    }
+
+    function needNewPage(heightNeeded, preserveSectionTitle) {
+      const bottomLimit = doc.page.height - (doc.page.margins.bottom || 40) - 40;
+      if (doc.y + heightNeeded > bottomLimit) {
+        doc.addPage();
+        // redraw main title area small header for continuity
+        writeMainTitle();
+        if (preserveSectionTitle) drawPageHeader(preserveSectionTitle);
+      }
+    }
+
+    // Start document
+    writeMainTitle();
+
+    // ------------------ SECTION: Pembelian ------------------
+    drawPageHeader('1) Riwayat Pembelian');
+    // table header
+    doc.fontSize(12).font('Helvetica-Bold');
+    // columns: No | Customer | Produk | Jml | Status | Keterangan | Tanggal
+    const colNoW = 30;
+    const colCustomerW = 90;
+    const colProductW = 100;
+    const colQtyW = 50;
+    const colStatusW = 70;
+    const colKetW = 90;
+    const colTglW = contentWidth - (colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW);
+
+    // draw header row background
+    const headerY = doc.y;
+    doc.save();
+    doc.opacity(0.04).rect(margin, headerY - 2, contentWidth, 18).fill();
+    doc.restore();
+
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('black');
+    doc.text('No', margin + 2, headerY, { width: colNoW - 2, align: 'center' });
+    doc.text('Customer', margin + colNoW + 2, headerY, { width: colCustomerW - 2, align: 'center' });
+    doc.text('Produk', margin + colNoW + colCustomerW + 2, headerY, { width: colProductW - 2, align: 'center' });
+    doc.text('Jumlah', margin + colNoW + colCustomerW + colProductW + 2, headerY, { width: colQtyW - 2, align: 'center' });
+    doc.text('Status', margin + colNoW + colCustomerW + colProductW + colQtyW + 2, headerY, { width: colStatusW - 2, align: 'center' });
+    doc.text('Keterangan', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, headerY, { width: colKetW - 2, align: 'center' });
+    doc.text('Tanggal', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, headerY, { width: colTglW - 2, align: 'center' });
+    doc.moveDown(1.2);
+    doc.font('Helvetica').fontSize(10);
+
+    if (!pembelianRows || pembelianRows.length === 0) {
+      doc.fontSize(10).fillColor('gray').text('Tidak ada data pembelian pada rentang ini.', margin, doc.y);
+      doc.fillColor('black');
+    } else {
+      for (let i = 0; i < pembelianRows.length; i++) {
+        const r = pembelianRows[i];
+        // prepare strings
+        const customerTxt = r.customer || '-';
+        const produkTxt = r.produk_nama || '-';
+        const qtyTxt = String(r.jumlah ?? '-');
+        const statusTxt = (r.status == 1 || r.status === 1) ? 'Selesai' : (r.status == 2 ? 'Pending' : String(r.status || '-'));
+        const ketTxt = r.keterangan || '-';
+        const tglTxt = r.tanggal ? new Date(r.tanggal).toLocaleString('id-ID') : '-';
+
+        // calculate expected height (wrap-aware)
+        const hNo = doc.heightOfString(String(i + 1), { width: colNoW - 2 });
+        const hCust = doc.heightOfString(customerTxt, { width: colCustomerW - 2 });
+        const hProd = doc.heightOfString(produkTxt, { width: colProductW - 2 });
+        const hQty = doc.heightOfString(qtyTxt, { width: colQtyW - 2 });
+        const hStatus = doc.heightOfString(statusTxt, { width: colStatusW - 2 });
+        const hKet = doc.heightOfString(ketTxt, { width: colKetW - 2 });
+        const hTgl = doc.heightOfString(tglTxt, { width: colTglW - 2 });
+
+        const maxH = Math.max(hNo, hCust, hProd, hQty, hStatus, hKet, hTgl, 14);
+
+        needNewPage(maxH + 10, '1) Riwayat Pembelian');
+
+        const y = doc.y;
+        doc.fontSize(10).fillColor('black').text(String(i + 1), margin + 2, y, { width: colNoW - 2, align: 'center' });
+        doc.text(customerTxt, margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
+        doc.text(produkTxt, margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
+        doc.text(qtyTxt, margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
+
+        // status colored
+        if ((statusTxt || '').toLowerCase() === 'selesai') doc.fillColor('#1b7a1b');
+        else if ((statusTxt || '').toLowerCase() === 'pending') doc.fillColor('#b02a2a');
+        else doc.fillColor('black');
+        doc.text(statusTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
+
+        // reset color
+        doc.fillColor('black');
+        doc.text(ketTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, y, { width: colKetW - 2, align: 'center' });
+        doc.text(tglTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, y, { width: colTglW - 2, align: 'center' });
+
+        doc.moveDown(Math.max(1, Math.ceil(maxH / 14)));
+      }
+    }
+
+    // ------------------ SECTION: Barang Masuk ------------------
+    drawPageHeader('2) Riwayat Barang Masuk');
+    if (bmOrder.length === 0) {
+      doc.fontSize(10).fillColor('gray').text('Tidak ada data barang masuk pada rentang ini.', margin, doc.y);
+      doc.fillColor('black');
+    } else {
+      let refBM = 0;
+      // layout for barang masuk
+      const colNoBM = 30;
+      const colQtyBM = 40;
+      const colProdukBM = contentWidth - (colNoBM + colQtyBM);
+
+      for (const bkId of bmOrder) {
+        refBM++;
+        const tx = groupedBM[bkId];
+        // header per transaksi
+        needNewPage(28, '2) Riwayat Barang Masuk');
+        const hdrLine = `Ref: ${refBM}    Pengirim: ${tx.pengirim || '-'}    Tanggal: ${tx.tanggal ? new Date(tx.tanggal).toLocaleString('id-ID') : '-'}`;
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('black').text(hdrLine, margin, doc.y, { width: contentWidth });
+        doc.moveDown(0.3);
+
+        // column header
+        const y0 = doc.y;
+        doc.fontSize(10).font('Helvetica-Bold');
+        doc.text('No', margin, y0, { width: colNoBM, align: 'center' });
+        doc.text('Produk', margin + colNoBM, y0, { width: colProdukBM, align: 'left' });
+        doc.text('Jumlah', margin + colNoBM + colProdukBM, y0, { width: colQtyBM, align: 'center' });
+        doc.moveDown(0.5);
+        doc.font('Helvetica');
+
+        // items
+        for (let idx = 0; idx < tx.items.length; idx++) {
+          const it = tx.items[idx];
+
+          // compute text heights
+          const produkNameH = doc.heightOfString(it.nama || ('ID ' + it.produk_id), { width: colProdukBM });
+          const ketH = it.keterangan ? doc.heightOfString('Keterangan: ' + it.keterangan, { width: colProdukBM }) : 0;
+          const imgH = it.gambar ? 100 : 0;
+          const rowPadding = 24;
+          const rowH = Math.max(produkNameH + ketH, imgH, 12) + rowPadding;
+
+          needNewPage(rowH + 20, '2) Riwayat Barang Masuk');
+
+          const y = doc.y;
+          doc.fontSize(10).text(String(idx + 1), margin, y, { width: colNoBM, align: 'center' });
+
+          const prodX = margin + colNoBM;
+          doc.text(it.nama || ('ID ' + it.produk_id), prodX, y, { width: colProdukBM, align: 'left' });
+
+          if (it.keterangan) {
+            const afterNamaY = doc.y + 2;
+            doc.fontSize(9).fillColor('gray').text('Keterangan: ' + it.keterangan, prodX, afterNamaY, { width: colProdukBM, align: 'left' });
+            doc.fillColor('black').fontSize(10);
+          }
+
+          // gambar (bila ada) : taruh di bawah nama, di area produk
+          if (it.gambar) {
+            const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+            const imgPath = first ? path.join(__dirname, 'media', first) : null;
+            if (imgPath && fs.existsSync(imgPath)) {
+              try {
+                const imgX = prodX;
+                const imgY = Math.max(y + produkNameH + 6, doc.y + 4);
+                doc.image(imgPath, imgX, imgY, { fit: [120, imgH] });
+              } catch (e) {
+                // ignore
+              }
+            }
+          }
+
+          const qtyX = margin + colNoBM + colProdukBM;
+          doc.text(String(it.jumlah ?? '-'), qtyX, y, { width: colQtyBM, align: 'center' });
+
+          // advance
+          doc.y = y + rowH;
+          doc.moveDown(0.2);
+        }
+
+        // separator
+        doc.moveDown(0.4);
+        doc.save();
+        doc.lineWidth(0.5).strokeColor('#DDDDDD');
+        doc.moveTo(margin, doc.y).lineTo(pageWidth - rightMargin, doc.y).stroke();
+        doc.restore();
+        doc.moveDown(0.6);
+      }
+    }
+
+    // ------------------ SECTION: Barang Keluar ------------------
+    drawPageHeader('3) Riwayat Barang Keluar');
+    if (bkOrder.length === 0) {
+      doc.fontSize(10).fillColor('gray').text('Tidak ada data barang keluar pada rentang ini.', margin, doc.y);
+      doc.fillColor('black');
+    } else {
+      let refBK = 0;
+      // layout for barang keluar
+      const colNoBK = 30;
+      const colQtyBK = 80;
+      const colStatusBK = 80;
+      const colProdukBK = contentWidth - (colNoBK + colQtyBK + colStatusBK);
+
+      for (const idBK of bkOrder) {
+        refBK++;
+        const tx = groupedBK[idBK];
+
+        needNewPage(28, '3) Riwayat Barang Keluar');
+        const hdrLine = `Ref: ${refBK}    Tujuan: ${tx.tujuan || '-'}    Tanggal: ${tx.tanggal ? new Date(tx.tanggal).toLocaleString('id-ID') : '-'}`;
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('black').text(hdrLine, margin, doc.y, { width: contentWidth });
+        doc.moveDown(0.3);
+
+        // column header
+        const y0 = doc.y;
+        doc.fontSize(10).font('Helvetica-Bold');
+        doc.text('No', margin, y0, { width: colNoBK, align: 'center' });
+        doc.text('Produk', margin + colNoBK, y0, { width: colProdukBK, align: 'left' });
+        doc.text('Jumlah', margin + colNoBK + colProdukBK, y0, { width: colQtyBK, align: 'center' });
+        doc.text('Status', margin + colNoBK + colProdukBK + colQtyBK, y0, { width: colStatusBK, align: 'center' });
+        doc.moveDown(0.5);
+        doc.font('Helvetica');
+
+        // items
+        for (let i = 0; i < tx.items.length; i++) {
+          const it = tx.items[i];
+
+          const produkNameH = doc.heightOfString(it.nama || ('ID ' + it.produk_id), { width: colProdukBK });
+          const ketH = it.keterangan ? doc.heightOfString('Keterangan: ' + it.keterangan, { width: colProdukBK }) : 0;
+          const imgH = it.gambar ? 80 : 0;
+          const rowPadding = 20;
+          const rowH = Math.max(produkNameH + ketH, imgH, 12) + rowPadding;
+
+          needNewPage(rowH + 20, '3) Riwayat Barang Keluar');
+
+          const y = doc.y;
+          doc.fontSize(10).text(String(i + 1), margin, y, { width: colNoBK, align: 'center' });
+
+          const prodX = margin + colNoBK;
+          doc.text(it.nama || ('ID ' + it.produk_id), prodX, y, { width: colProdukBK, align: 'left' });
+
+          if (it.keterangan) {
+            const afterY = doc.y + 2;
+            doc.fontSize(9).fillColor('gray').text('Keterangan: ' + it.keterangan, prodX, afterY, { width: colProdukBK, align: 'left' });
+            doc.fillColor('black').fontSize(10);
+          }
+
+          // gambar under product
+          if (it.gambar) {
+            const first = (it.gambar.split && it.gambar.split(',')[0]) || null;
+            const imgPath = first ? path.join(__dirname, 'media', first) : null;
+            if (imgPath && fs.existsSync(imgPath)) {
+              try {
+                const imgX = prodX;
+                const imgY = Math.max(y + produkNameH + 6, doc.y + 4);
+                doc.image(imgPath, imgX, imgY, { fit: [120, imgH] });
+              } catch (e) { /* ignore */ }
+            }
+          }
+
+          const qtyX = margin + colNoBK + colProdukBK;
+          doc.text(String(it.jumlah ?? '-'), qtyX, y, { width: colQtyBK, align: 'center' });
+
+          const statusLabel = (it.status === 1) ? 'Selesai' : 'Pending';
+          const statusX = margin + colNoBK + colProdukBK + colQtyBK;
+          doc.text(statusLabel, statusX, y, { width: colStatusBK, align: 'center' });
+
+          doc.y = y + rowH;
+          doc.moveDown(0.2);
+        }
+
+        doc.moveDown(0.4);
+        doc.save();
+        doc.lineWidth(0.5).strokeColor('#DDDDDD');
+        doc.moveTo(margin, doc.y).lineTo(pageWidth - rightMargin, doc.y).stroke();
+        doc.restore();
+        doc.moveDown(0.6);
+      }
+    }
+
+    // footer
+    doc.moveDown(0.6);
+    doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+
+    doc.end();
+
+  } catch (err) {
+    console.error('/export/all/pdf error:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Gagal generate PDF gabungan.');
+    }
   }
 });
 
