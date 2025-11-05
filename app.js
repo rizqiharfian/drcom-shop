@@ -1885,13 +1885,13 @@ app.get('/export/all/pdf', async (req, res) => {
       }
     }
 
-    function needNewPage(heightNeeded, preserveSectionTitle) {
+    function needNewPage(heightNeeded) {
       const bottomLimit = doc.page.height - (doc.page.margins.bottom || 40) - 40;
       if (doc.y + heightNeeded > bottomLimit) {
         doc.addPage();
-        // redraw main title area small header for continuity
+        // redraw main title small header for continuity
         writeMainTitle();
-        if (preserveSectionTitle) drawPageHeader(preserveSectionTitle);
+        // NOTE: do NOT redraw section title here (we only want it once per section)
       }
     }
 
