@@ -34,6 +34,16 @@
       <input id="searchInput" type="search" class="form-control form-control-lg" placeholder="Cari produk berdasarkan nama atau keterangan...">
     </div>
 
+    <div class="text-center my-3">
+      <a href="/export/produk/pdf" class="btn btn-danger btn-sm" id="exportPdfBtn">
+        Export PDF
+      </a>
+
+      <a href="/export/produk/excel" class="btn btn-success btn-sm" id="exportExcelBtn">
+        Export Excel
+      </a>
+    </div>
+
     <!-- Brand filter buttons -->
     <div class="brand-filter">
       <button id="brandAll" class="btn btn-sm btn-outline-primary">All</button>
@@ -69,24 +79,33 @@
             </div>
 
             <div class="card-footer bg-light text-muted d-flex flex-column gap-2">
-              <div>
-                <% if (p.brand_name) { %>
-                  <small class="text-muted">Merk: <strong><%= p.brand_name %></strong></small><br>
-                <% } %>
-                Stok: <strong><%= p.jumlah_stok %></strong><br>
-                Posisi: <strong><%= p.posisi || '-' %></strong>
-              </div>
-              <div class="card-actions">
-                <!-- Lihat (show) -->
-                <a href="/produk/<%= p.id %>" class="btn btn-sm btn-outline-primary" title="Lihat Produk">
-                  <i class="bi bi-eye"></i>
-                </a>
-                <!-- Edit -->
-                <a href="/produk/<%= p.id %>/edit" class="btn btn-sm btn-outline-warning" title="Edit Produk">
-                  <i class="bi bi-pencil"></i>
-                </a>
-              </div>
-            </div>
+  <div>
+    <% if (p.brand_name) { %>
+      <small class="text-muted">Merk: <strong><%= p.brand_name %></strong></small><br>
+
+      <!-- QR khusus brand dari produk ini -->
+      <img src="/qr/brand/<%= encodeURIComponent(p.brand_name) %>"
+           alt="QR <%= p.brand_name %>"
+           style="width:120px;background:#fff;padding:8px;border-radius:8px;margin-top:6px;">
+    <% } %>
+
+    Stok: <strong><%= p.jumlah_stok %></strong><br>
+    Posisi: <strong><%= p.posisi || '-' %></strong>
+  </div>
+
+  <div class="card-actions">
+    <!-- Lihat -->
+    <a href="/produk/<%= p.id %>" class="btn btn-sm btn-outline-primary" title="Lihat Produk">
+      <i class="bi bi-eye"></i>
+    </a>
+
+    <!-- Edit -->
+    <a href="/produk/<%= p.id %>/edit" class="btn btn-sm btn-outline-warning" title="Edit Produk">
+      <i class="bi bi-pencil"></i>
+    </a>
+  </div>
+</div>
+
           </div>
         </div>
       <% }) %>
@@ -236,5 +255,26 @@
       }
     });
   </script>
+  <script>
+    function updateExportLinks() {
+      const pdf = document.getElementById("exportPdfBtn");
+      const excel = document.getElementById("exportExcelBtn");
+      if (activeBrandId) {
+        pdf.href = `/export/produk/pdf?brand_id=${activeBrandId}`;
+        excel.href = `/export/produk/excel?brand_id=${activeBrandId}`;
+      } else {
+        pdf.href = `/export/produk/pdf`;
+        excel.href = `/export/produk/excel`;
+      }
+    }
+
+    // jalankan setiap filter brand berubah
+    brandButtons.forEach(b => {
+      b.addEventListener('click', updateExportLinks);
+    });
+
+    btnAll.addEventListener('click', updateExportLinks);
+  </script>
+
 </body>
 </html>

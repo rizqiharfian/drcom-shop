@@ -21,7 +21,15 @@
         <div class="col-md-8">
           <div class="card-body">
             <h3><%= p.nama %></h3>
-            <p class="text-muted"><%= p.brand_name ? 'Merk: ' + p.brand_name : '' %></p>
+            <p class="text-muted">
+              <% if (p.brand_name) { %>
+                Merk: <strong><%= p.brand_name %></strong><br>
+
+                <!-- QR CODE -->
+                <img src="/qrcode/brand/<%= encodeURIComponent(p.brand_name) %>"
+                    style="width:200px;margin-top:8px;background:#fff;padding:8px;border-radius:8px;">
+              <% } %>
+            </p>
             <p><%= p.keterangan || '-' %></p>
             <p><strong>Stok:</strong> <%= p.jumlah_stok %></p>
             <p class="mb-1"><strong>Posisi:</strong> <%= p.posisi || '-' %></p>

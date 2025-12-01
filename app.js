@@ -486,31 +486,65 @@ async function columnExists(tableName, columnName) {
   return rows && rows.length && rows[0].cnt > 0;
 }
 
-// ---- GET /produk (list) - robust terhadap brand.name vs brand.nama ----
+// ======================================================
+// GET /produk 
+// ======================================================
 app.get('/produk', async (req, res) => {
   try {
-    // cek terlebih dulu apakah tabel brand ada dan kolom apa yang tersedia
-    const brandTableExists = (await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'"))[0].cnt > 0;
+
+    // === 1. Cek apakah tabel brand ada ===
+    const brandTableExists = (
+      await q(`
+        SELECT COUNT(*) AS cnt 
+        FROM information_schema.tables 
+        WHERE table_schema = DATABASE() 
+        AND table_name = 'brand'
+      `)
+    )[0].cnt > 0;
+
+    // === 2. Deteksi kolom brand (name atau nama) ===
     let brandColumn = null;
     if (brandTableExists) {
       if (await columnExists('brand', 'name')) brandColumn = 'name';
       else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
     }
 
-    // bangun SQL dinamis
-    let sql = `
-      SELECT produk.*, IFNULL(stock.jumlah, 0) AS jumlah_stok
-      ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
+    // === 3. Query produk + stok + brand (jika ada) ===
+    const sql = `
+      SELECT 
+        produk.*, 
+        IFNULL(stock.jumlah, 0) AS jumlah_stok
+        ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
       FROM produk
-      LEFT JOIN stock ON produk.id = stock.produk_id
+      LEFT JOIN stock 
+        ON produk.id = stock.produk_id
       ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
       ORDER BY produk.nama ASC
     `;
+
     const results = await q(sql);
-    const produk = results.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [], brand_name: p.brand_name ?? null, posisi: p.posisi ?? null }));
-    // ambil brands untuk filter (jika ada tabel brand)
-    const brands = brandTableExists ? await q('SELECT id, ' + (brandColumn || 'nama') + ' AS name FROM brand ORDER BY ' + (brandColumn || 'nama') + ' ASC') : [];
+
+    // === 4. Format hasil produk ===
+    const produk = results.map(item => ({
+      ...item,
+      gambar_list: item.gambar ? item.gambar.split(',') : [],
+      brand_name: item.brand_name ?? null,
+      posisi: item.posisi ?? null
+    }));
+
+    // === 5. Ambil daftar brand untuk filter (jika tabel ada) ===
+    let brands = [];
+    if (brandTableExists) {
+      brands = await q(`
+        SELECT id, ${brandColumn || 'nama'} AS name 
+        FROM brand 
+        ORDER BY ${brandColumn || 'nama'} ASC
+      `);
+    }
+
+    // === 6. Render ===
     res.render('produk', { produk, brands });
+
   } catch (err) {
     console.error('GET /produk error:', err);
     res.status(500).send('Gagal mengambil data produk.');
@@ -672,6 +706,182 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
   }
 });
 
+// GET /export/produk/pdf
+app.get("/export/produk/pdf", async (req, res) => {
+  try {
+    const rows = await q(`
+      SELECT 
+        produk.*,
+        IFNULL(stock.jumlah, 0) AS jumlah_stok,
+        COALESCE(b.nama, 'Tanpa Brand') AS brand_name
+      FROM produk
+      LEFT JOIN stock ON produk.id = stock.produk_id
+      LEFT JOIN brand b ON produk.brand_id = b.id
+      ORDER BY brand_name ASC, produk.nama ASC
+    `);
+
+    // PDF
+    const doc = new PDFDocument({ margin: 30 });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=produk.pdf");
+
+    doc.pipe(res); // <<< WAJIB, INI YANG BIKIN TIDAK PENDING
+
+    doc.fontSize(20).text("Laporan Produk", { align: "center" });
+    doc.moveDown();
+
+    let currentBrand = "";
+
+    rows.forEach(item => {
+      if (item.brand_name !== currentBrand) {
+        currentBrand = item.brand_name;
+        doc.moveDown();
+        doc.fontSize(16).text(`Brand: ${currentBrand}`, { underline: true });
+      }
+
+      doc.fontSize(12).text(`- ${item.nama} | Stok: ${item.jumlah_stok}`, {
+        indent: 20,
+      });
+    });
+
+    doc.end(); // <<< WAJIB SUPAYA RESPONSE SELESAI
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Gagal membuat PDF.");
+  }
+});
+
+
+const bwipjs = require('bwip-js');
+
+// QR Code berdasarkan brand
+app.get('/qrcode/brand/:text', async (req, res) => {
+  try {
+    const text = req.params.text;
+
+    const png = await bwipjs.toBuffer({
+      bcid: 'qrcode',      // TIPE QR CODE
+      text: text,          // isi QR
+      scale: 5,            // ukuran pixel
+      includetext: false   // QR biasanya tanpa tulisan
+    });
+
+    res.set('Content-Type', 'image/png');
+    res.send(png);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Gagal membuat QR Code');
+  }
+});
+
+const ExcelJS = require('exceljs');
+
+// EXPORT EXCEL PRODUK - HEADER PREMIUM + GROUP BY BRAND
+app.get('/export/produk/excel', async (req, res) => {
+  try {
+    const brandId = req.query.brand_id || null;
+
+    let sql = `
+      SELECT 
+        p.*, 
+        IFNULL(s.jumlah, 0) AS stok,
+        COALESCE(b.nama, 'Tanpa Brand') AS brand_name
+      FROM produk p
+      LEFT JOIN stock s ON p.id = s.produk_id
+      LEFT JOIN brand b ON p.brand_id = b.id
+    `;
+
+    if (brandId) sql += ` WHERE p.brand_id = ${brandId}`;
+    sql += ` ORDER BY brand_name ASC, p.nama ASC`;
+
+    const rows = await q(sql);
+
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Laporan Produk");
+
+    // HEADER PREMIUM (Gold)
+    sheet.columns = [
+      { header: "Merk", key: "brand", width: 25 },
+      { header: "Nama Produk", key: "nama", width: 30 },
+      { header: "Stok", key: "stok", width: 10 },
+      { header: "Posisi", key: "posisi", width: 20 },
+      { header: "Keterangan", key: "keterangan", width: 30 }
+    ];
+
+    sheet.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD4A017" } // gold premium
+      };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+    });
+
+    let currentBrand = "";
+
+    rows.forEach((p) => {
+      if (p.brand_name !== currentBrand) {
+        currentBrand = p.brand_name;
+
+        const row = sheet.addRow({
+          brand: currentBrand,
+          nama: "",
+          stok: "",
+          posisi: "",
+          keterangan: ""
+        });
+
+        row.font = { bold: true };
+      }
+
+      sheet.addRow({
+        brand: "",
+        nama: p.nama,
+        stok: p.stok,
+        posisi: p.posisi || "-",
+        keterangan: p.keterangan || "-"
+      });
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="produk.xlsx"');
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Gagal export Excel");
+  }
+});
+
+const QRCode = require('qrcode');
+
+app.get('/qr/brand/:name', async (req, res) => {
+  try {
+    const brandName = decodeURIComponent(req.params.name);
+    const target = `${req.protocol}://${req.get('host')}/produk?brand=${encodeURIComponent(brandName)}`;
+
+    res.setHeader('Content-Type', 'image/png');
+
+    const pngBuffer = await QRCode.toBuffer(target, {
+      type: 'png',
+      width: 300,
+      margin: 1
+    });
+
+    res.send(pngBuffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('QR error');
+  }
+});
 
 // add brand (simple)
 app.post('/brands', async (req, res) => {
