@@ -1,28 +1,33 @@
-// app.js (selaras & disempurnakan)
+// 1️⃣ Load env PALING ATAS
+require('dotenv').config();
+
+// 2️⃣ Import module
 const express = require('express');
 const bodyParser = require('body-parser');
-const mysql = require('mysql2');
 const path = require('path');
+
+// 3️⃣ Init app
 const app = express();
 
+// 4️⃣ Config dasar
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static('public'));
 app.use('/media', express.static(path.join(__dirname, 'media')));
 
-// MySQL connection (callback API) -> kita bungkus ke Promise untuk kemudahan
-const db = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'toko'
-});
+// 5️⃣ DB (cukup require, JANGAN connect lagi)
+const db = require('./config/db');
 
-db.connect((err) => {
-  if (err) throw err;
-  console.log('✅ Connected to MySQL');
+// 6️⃣ ROUTES (kalau ada)
+// app.use('/', require('./routes/...'));
+
+// 7️⃣ LISTEN HARUS PALING BAWAH
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
 
 // helper promise wrappers
