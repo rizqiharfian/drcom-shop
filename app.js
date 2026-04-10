@@ -651,6 +651,23 @@ app.get('/produk/:id/edit', async (req, res) => {
   }
 });
 
+app.post('/produk/:id/delete', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).send('ID tidak valid');
+
+    // hapus stok dulu (opsional tapi disarankan)
+    await q('DELETE FROM stock WHERE produk_id = ?', [id]);
+
+    // hapus produk
+    await q('DELETE FROM produk WHERE id = ?', [id]);
+
+    res.redirect('/produk');
+  } catch (err) {
+    console.error('DELETE ERROR:', err);
+    res.status(500).send('Gagal hapus produk');
+  }
+});
 // ---------- PRODUK: UPDATE ----------
 /**
  * Form edit mengirim multipart/form-data dengan:
