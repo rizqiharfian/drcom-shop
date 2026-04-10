@@ -94,16 +94,27 @@
   </div>
 
   <div class="card-actions">
-    <!-- Lihat -->
-    <a href="/produk/<%= p.id %>" class="btn btn-sm btn-outline-primary" title="Lihat Produk">
-      <i class="bi bi-eye"></i>
-    </a>
+  <!-- Lihat -->
+  <a href="/produk/<%= p.id %>" class="btn btn-sm btn-outline-primary" title="Lihat Produk">
+    <i class="bi bi-eye"></i>
+  </a>
 
-    <!-- Edit -->
-    <a href="/produk/<%= p.id %>/edit" class="btn btn-sm btn-outline-warning" title="Edit Produk">
-      <i class="bi bi-pencil"></i>
-    </a>
-  </div>
+  <!-- Edit -->
+  <a href="/produk/<%= p.id %>/edit" class="btn btn-sm btn-outline-warning" title="Edit Produk">
+    <i class="bi bi-pencil"></i>
+  </a>
+
+  <!-- Hapus -->
+  <form action="/produk/<%= p.id %>/delete" method="POST" style="display:inline;">
+    <button 
+      type="submit" 
+      class="btn btn-sm btn-outline-danger"
+      title="Hapus Produk"
+      onclick="return confirm('Yakin mau hapus produk ini?')">
+      <i class="bi bi-trash"></i>
+    </button>
+  </form>
+</div>
 </div>
 
           </div>
