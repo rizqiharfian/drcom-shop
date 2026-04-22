@@ -5,110 +5,185 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Barang Keluar</title>
   <link rel="icon" href="/drcom.png" type="image/png">
+
+  <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+  <!-- SELECT2 -->
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+  <!-- JQUERY (WAJIB) -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <!-- SELECT2 -->
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
   <style>
     body { background-color: #f8f9fa; }
     .container { max-width: 1000px; }
     th, td { vertical-align: middle; }
   </style>
 </head>
+
 <body class="bg-light">
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-        <div class="container">
-        <a class="navbar-brand" href="/">Manajemen Toko</a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
 
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav ms-auto">
-            <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
-            <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
-            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
-            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
-            <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
-            </ul>
-        </div>
-        </div>
-    </nav>
+<!-- NAVBAR -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container">
+    <a class="navbar-brand" href="/">Manajemen Toko</a>
 
-  <div class="container mt-5 p-4 bg-white shadow-sm rounded">
-    <h2 class="text-center mb-4">Form Barang Keluar</h2>
-
-    <!-- NOTE: enctype multipart/form-data diperlukan untuk upload file -->
-    <form action="/barang-keluar" method="POST" id="formKeluar" enctype="multipart/form-data">
-      <!-- Input Tujuan -->
-      <div class="mb-3">
-        <label class="form-label fw-bold">Tujuan Pengiriman</label>
-        <input type="text" class="form-control" name="tujuan" required />
-      </div>
-
-      <!-- Table Barang Keluar -->
-      <table class="table table-bordered text-center align-middle" id="tableItems">
-        <thead class="table-danger">
-          <tr>
-            <th>Produk</th>
-            <th>Jumlah</th>
-            <th>Keterangan</th>
-            <th>Gambar</th>
-            <th>Aksi</th>
-          </tr>
-        </thead>
-        <tbody id="itemsContainer">
-          <tr>
-            <td>
-              <select name="produk[]" class="form-select" required>
-                <option value="">-- Pilih Produk --</option>
-                <% produk.forEach(p => { %>
-                  <option value="<%= p.id %>"><%= p.nama %></option>
-                <% }) %>
-              </select>
-            </td>
-            <td><input type="number" name="jumlah[]" class="form-control" min="1" required></td>
-            <td><input type="text" name="keterangan[]" class="form-control" placeholder="Opsional"></td>
-            <td><input type="file" name="gambar" accept="image/*" class="form-control form-control-sm"></td>
-            <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="text-center">
-        <button type="button" id="addRow" class="btn btn-success mb-3">+ Tambah Produk</button><br>
-        <button type="submit" class="btn btn-primary">Simpan Barang Keluar</button>
-      </div>
-    </form>
+    <div class="collapse navbar-collapse">
+      <ul class="navbar-nav ms-auto">
+        <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
+        <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
+        <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/barang-keluar">Barang Keluar</a></li>
+        <li class="nav-item"><a class="nav-link" href="/produk">Produk</a></li>
+      </ul>
+    </div>
   </div>
+</nav>
 
-  <script>
-    // produk array dari server (variable bernama "produk" dikirim oleh app.js)
-    const produkList = <%- JSON.stringify(produk || []) %>;
+<div class="container mt-5 p-4 bg-white shadow-sm rounded">
+  <h2 class="text-center mb-4">Form Barang Keluar</h2>
 
-    // Tambah baris baru dengan dropdown yang terisi produkList + input file
-    document.getElementById("addRow").addEventListener("click", function() {
-      let options = '<option value="">-- Pilih Produk --</option>';
-      produkList.forEach(p => {
-        options += `<option value="${p.id}">${p.nama}</option>`;
-      });
+  <form action="/barang-keluar" method="POST" id="formKeluar" enctype="multipart/form-data">
 
-      const newRow = `
+    <!-- Tujuan -->
+    <div class="mb-3">
+      <label class="form-label fw-bold">Tujuan Pengiriman</label>
+      <input type="text" class="form-control" name="tujuan" required />
+    </div>
+
+    <!-- TABLE -->
+    <table class="table table-bordered text-center align-middle">
+      <thead class="table-danger">
         <tr>
-          <td><select name="produk[]" class="form-select" required>${options}</select></td>
-          <td><input type="number" name="jumlah[]" class="form-control" min="1" required></td>
-          <td><input type="text" name="keterangan[]" class="form-control" placeholder="Opsional"></td>
-          <td><input type="file" name="gambar" accept="image/*" class="form-control form-control-sm"></td>
-          <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
-        </tr>`;
-      document.getElementById("itemsContainer").insertAdjacentHTML("beforeend", newRow);
-    });
+          <th>Produk</th>
+          <th>Jumlah</th>
+          <th>Keterangan</th>
+          <th>Gambar</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
 
-    // Hapus baris
-    document.addEventListener("click", function(e) {
-      if (e.target.classList.contains("removeRow")) {
-        const tr = e.target.closest("tr");
-        tr.remove();
-      }
-    });
-  </script>
+      <tbody id="itemsContainer">
+        <tr class="item-row">
+          <td>
+            <select name="produk[]" class="form-select produk-select" required>
+              <option value="">-- Cari Produk (contoh: laptop asus) --</option>
+              <% produk.forEach(p => { %>
+                <option value="<%= p.id %>"><%= p.nama %></option>
+              <% }) %>
+            </select>
+          </td>
+
+          <td>
+            <input type="number" name="jumlah[]" class="form-control jumlah" min="1" required>
+          </td>
+
+          <td>
+            <input type="text" name="keterangan[]" class="form-control" placeholder="Opsional">
+          </td>
+
+          <td>
+            <input type="file" name="gambar" accept="image/*" class="form-control form-control-sm">
+          </td>
+
+          <td>
+            <button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="text-center">
+      <button type="button" id="addRow" class="btn btn-success mb-3">+ Tambah Produk</button><br>
+      <button type="submit" class="btn btn-primary">Simpan Barang Keluar</button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+
+/* =========================
+   INIT SELECT2
+========================= */
+function initSelect2() {
+  $('.produk-select').select2({
+    placeholder: '-- Cari Produk (ketik nama laptop) --',
+    allowClear: true,
+    width: '100%'
+  });
+}
+
+$(document).ready(function () {
+  initSelect2();
+});
+
+
+/* =========================
+   TAMBAH ROW
+========================= */
+$('#addRow').click(function () {
+
+  let clone = $('.item-row:first').clone();
+
+  // reset value
+  clone.find('input').val('');
+  clone.find('select').val('');
+
+  // HAPUS select2 lama
+  clone.find('.select2-container').remove();
+  clone.find('select').removeClass('select2-hidden-accessible');
+
+  $('#itemsContainer').append(clone);
+
+  // init ulang
+  initSelect2();
+});
+
+
+/* =========================
+   HAPUS ROW
+========================= */
+$(document).on('click', '.removeRow', function () {
+  if ($('.item-row').length > 1) {
+    $(this).closest('tr').remove();
+  }
+});
+
+
+/* =========================
+   VALIDASI
+========================= */
+$('#formKeluar').submit(function (e) {
+
+  let tujuan = $('input[name="tujuan"]').val().trim();
+  if (!tujuan) {
+    e.preventDefault();
+    alert('Isi tujuan pengiriman');
+    return;
+  }
+
+  let valid = false;
+
+  $('.item-row').each(function () {
+    let produk = $(this).find('.produk-select').val();
+    let jumlah = $(this).find('.jumlah').val();
+
+    if (produk && jumlah > 0) {
+      valid = true;
+    }
+  });
+
+  if (!valid) {
+    e.preventDefault();
+    alert('Minimal 1 produk harus diisi');
+  }
+});
+</script>
+
 </body>
 </html>
