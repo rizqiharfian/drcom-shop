@@ -358,7 +358,7 @@ app.get('/export/pembelian/pdf', async (req, res) => {
 
       doc.fontSize(11).font('Helvetica-Bold').fillColor('black');
       doc.text('No', margin + 2, y, { width: colNoW - 2, align: 'center' });
-      doc.text('Customer', margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
+      doc.text('Seller', margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
       doc.text('Produk', margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
       doc.text('Jml', margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
       doc.text('Status', margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
