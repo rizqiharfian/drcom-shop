@@ -524,7 +524,13 @@ app.get('/produk', async (req, res) => {
       LEFT JOIN stock 
         ON produk.id = stock.produk_id
       ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
-      ORDER BY produk.nama ASC
+
+      ORDER BY 
+        CASE 
+          WHEN IFNULL(stock.jumlah, 0) <= 0 THEN 1
+          ELSE 0
+        END ASC,
+        produk.id ASC
     `;
 
     const results = await q(sql);

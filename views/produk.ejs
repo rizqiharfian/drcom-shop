@@ -59,14 +59,20 @@
     </div>
 
     <div id="produkGrid" class="row row-cols-1 row-cols-md-3 g-4">
-      <% produk.forEach(p => { %>
+      <% produk.forEach((p, index) => { %>
         <div class="col produk-card"
              data-nama="<%= (p.nama || '').toLowerCase() %>"
              data-ket="<%= (p.keterangan || '').toLowerCase() %>"
              data-pos="<%= (p.posisi || '').toLowerCase() %>"
              data-brand-id="<%= p.brand_id ?? '' %>"
              data-brand-name="<%= (p.brand_name || '').toLowerCase() %>">
-          <div class="card h-100 text-center shadow-sm">
+          <div class="card h-100 text-center shadow-sm position-relative">
+            <!-- Nomor Upload -->
+            <div 
+              class="position-absolute top-0 start-0 bg-primary text-white px-2 py-1 rounded-end"
+              style="font-size:13px; z-index:10;">
+              #<%= p.id %>
+            </div>
             <% if (p.gambar_list && p.gambar_list.length > 0) { %>
               <img src="/media/<%= p.gambar_list[0] %>" class="card-img-top produk-img" alt="<%= p.nama %>">
             <% } else { %>
@@ -84,12 +90,19 @@
       <small class="text-muted">Merk: <strong><%= p.brand_name %></strong></small><br>
 
       <!-- QR khusus brand dari produk ini -->
-      <img src="/qr/brand/<%= encodeURIComponent(p.brand_name) %>"
+      <!-- <img src="/qr/brand/<%= encodeURIComponent(p.brand_name) %>"
            alt="QR <%= p.brand_name %>"
            style="width:120px;background:#fff;padding:8px;border-radius:8px;margin-top:6px;">
-    <% } %>
+    <% } %><br> -->
 
-    Stok: <strong><%= p.jumlah_stok %></strong><br>
+    Stok: 
+    <strong class="<%= p.jumlah_stok <= 0 ? 'text-danger' : 'text-success' %>">
+      <%= p.jumlah_stok %>
+    </strong>
+
+    <% if (p.jumlah_stok <= 0) { %>
+      <div class="badge bg-danger mt-1">STOK HABIS</div>
+    <% } %><br>
     Posisi: <strong><%= p.posisi || '-' %></strong>
   </div>
 
