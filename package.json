@@ -1,9 +1,10 @@
 {
   "name": "drcom-shop",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js",
+    "dev": "nodemon app.js"
   },
   "keywords": [],
   "author": "",
@@ -24,5 +25,8 @@
     "qrcode": "^1.5.4",
     "streamifier": "^0.1.1",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }

@@ -26,12 +26,6 @@ const db = require('./config/db');
 // 6️⃣ ROUTES (kalau ada)
 // app.use('/', require('./routes/...'));
 
-// 7️⃣ LISTEN HARUS PALING BAWAH
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
 // helper promise wrappers
 const q = (sql, params=[]) => new Promise((resolve, reject) => {
   db.query(sql, params, (err, results) => err ? reject(err) : resolve(results));
@@ -3660,5 +3654,8 @@ app.get('/export/all/pdf', async (req, res) => {
   }
 });
 
-// Jalankan server
-app.listen(3000, () => console.log('🚀 Server berjalan di http://localhost:3000'));
+// 7️⃣ LISTEN HARUS PALING BAWAH
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
