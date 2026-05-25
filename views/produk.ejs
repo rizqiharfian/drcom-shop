@@ -20,8 +20,46 @@
     <div class="container-fluid">
       <a class="navbar-brand" href="/">Manajemen Toko</a>
       <div class="d-flex ms-auto">
-        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalTambahProduk">+ Tambah Produk</button>
-        <a class="btn btn-outline-light" href="/">← Kembali</a>
+
+        <button 
+          class="btn btn-primary me-2"
+          data-bs-toggle="modal"
+          data-bs-target="#modalImportExcel">
+
+          <i class="bi bi-file-earmark-excel"></i>
+          Import Excel
+        </button>
+
+        <button 
+          class="btn btn-info me-2"
+          data-bs-toggle="modal"
+          data-bs-target="#modalImportWord">
+
+          <i class="bi bi-file-earmark-word"></i>
+          Import Word
+        </button>
+
+        <!-- BUTTON CABANG SEMARANG -->
+        <a href="/stok/semarang" class="btn btn-warning me-2">
+
+          <i class="bi bi-building"></i>
+          Cabang Semarang
+
+        </a>
+
+        <button 
+          class="btn btn-success me-2"
+          data-bs-toggle="modal"
+          data-bs-target="#modalTambahProduk">
+
+          + Tambah Produk
+
+        </button>
+
+        <a class="btn btn-outline-light" href="/">
+          ← Kembali
+        </a>
+
       </div>
     </div>
   </nav>
@@ -58,6 +96,9 @@
       <% } %>
     </div>
 
+    <%
+    let activeIndex = 1;
+    %>
     <div id="produkGrid" class="row row-cols-1 row-cols-md-3 g-4">
       <% produk.forEach((p, index) => { %>
         <div class="col produk-card"
@@ -65,14 +106,26 @@
              data-ket="<%= (p.keterangan || '').toLowerCase() %>"
              data-pos="<%= (p.posisi || '').toLowerCase() %>"
              data-brand-id="<%= p.brand_id ?? '' %>"
-             data-brand-name="<%= (p.brand_name || '').toLowerCase() %>">
+             data-brand-name="<%= (p.brand_name || '').toLowerCase() %>}">
           <div class="card h-100 text-center shadow-sm position-relative">
             <!-- Nomor Upload -->
-            <div 
-              class="position-absolute top-0 start-0 bg-primary text-white px-2 py-1 rounded-end"
-              style="font-size:13px; z-index:10;">
-              #<%= p.id %>
-            </div>
+<div 
+  class="position-absolute top-0 start-0 px-2 py-1 rounded-end"
+  style="font-size:13px; z-index:10;
+  background:<%= p.jumlah_stok > 0 ? '#0d6efd' : '#dc3545' %>;
+  color:white;">
+
+  <% if (p.jumlah_stok > 0) { %>
+
+    #P<%= activeIndex++ %>
+
+  <% } else { %>
+
+    SOLD
+
+  <% } %>
+
+</div>
             <% if (p.gambar_list && p.gambar_list.length > 0) { %>
               <img src="/media/<%= p.gambar_list[0] %>" class="card-img-top produk-img" alt="<%= p.nama %>">
             <% } else { %>
@@ -149,6 +202,16 @@
             <div class="mb-3">
               <label class="form-label">Nama Produk</label>
               <input type="text" name="nama" class="form-control" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Kode Produk</label>
+
+              <input 
+                type="text"
+                class="form-control"
+                value="Otomatis"
+                disabled>
             </div>
 
             <div class="mb-3">
@@ -300,5 +363,143 @@
     btnAll.addEventListener('click', updateExportLinks);
   </script>
 
+<!-- Modal Import Excel -->
+<div class="modal fade" id="modalImportExcel" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+
+      <form 
+        action="/produk/import-excel"
+        method="POST"
+        enctype="multipart/form-data">
+
+        <div class="modal-header">
+          <h5 class="modal-title">
+            Import Produk Excel
+          </h5>
+
+          <button 
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal">
+          </button>
+        </div>
+
+        <div class="modal-body">
+
+          <div class="mb-3">
+            <label class="form-label">
+              Upload File Excel
+            </label>
+
+            <input 
+              type="file"
+              name="excel"
+              class="form-control"
+              accept=".xlsx,.xls,.csv"
+              required>
+          </div>
+
+          <div class="alert alert-info">
+            Format Excel:
+            <hr>
+
+            kode_produk | nama | stok | keterangan | posisi
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button 
+            type="button"
+            class="btn btn-secondary"
+            data-bs-dismiss="modal">
+
+            Batal
+          </button>
+
+          <button 
+            type="submit"
+            class="btn btn-primary">
+
+            Import
+          </button>
+        </div>
+
+      </form>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal Import Word -->
+<div class="modal fade" id="modalImportWord" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+
+      <form 
+        action="/produk/import-word"
+        method="POST"
+        enctype="multipart/form-data">
+
+        <div class="modal-header">
+          <h5 class="modal-title">
+            Import Produk Word
+          </h5>
+
+          <button 
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal">
+          </button>
+        </div>
+
+        <div class="modal-body">
+
+          <input 
+            type="file"
+            name="word"
+            class="form-control"
+            accept=".docx"
+            required>
+
+          <div class="alert alert-info mt-3">
+
+            Format Word:
+
+            <hr>
+
+            1. Asus ROG - Gaming <br>
+            2. Lenovo - Office <br>
+            3. Acer Nitro - RTX
+
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+
+          <button 
+            type="button"
+            class="btn btn-secondary"
+            data-bs-dismiss="modal">
+
+            Batal
+          </button>
+
+          <button 
+            type="submit"
+            class="btn btn-primary">
+
+            Import
+          </button>
+
+        </div>
+
+      </form>
+
+    </div>
+  </div>
+</div>
 </body>
 </html>

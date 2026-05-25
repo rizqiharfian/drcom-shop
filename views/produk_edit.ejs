@@ -19,6 +19,16 @@
           </div>
 
           <div class="mb-3">
+            <label class="form-label">Kode Produk</label>
+            <input 
+              type="text" 
+              name="kode_produk" 
+              class="form-control"
+              value="<%= p.kode_produk || '' %>"
+              required>
+          </div>
+
+          <div class="mb-3">
             <label class="form-label">Merk (Brand)</label>
             <select name="brand_id" class="form-select">
               <option value="">-- Pilih Merk (opsional) --</option>
@@ -31,11 +41,38 @@
           <div class="mb-3">
             <label class="form-label">Gambar (upload tambahan)</label>
             <input type="file" name="gambar" class="form-control" accept="image/*" multiple>
-            <div class="mt-2 d-flex gap-2">
-              <% p.gambar_list.forEach(fn => { %>
-                <img src="/media/<%= fn %>" style="width:80px;height:80px;object-fit:cover;border-radius:6px;">
-              <% }) %>
-            </div>
+            <div class="mt-2 d-flex flex-wrap gap-2">
+  <% p.gambar_list.forEach(fn => { %>
+    <div class="position-relative" style="width:80px;height:80px;">
+
+      <img 
+        src="/media/<%= fn %>" 
+        style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #ddd;"
+      >
+
+      <!-- tombol hapus -->
+      <a 
+        href="/produk/<%= p.id %>/hapus-gambar/<%= fn %>"
+        onclick="return confirm('Hapus gambar ini?')"
+        class="btn btn-danger btn-sm rounded-circle d-flex align-items-center justify-content-center"
+        style="
+          position:absolute;
+          top:-8px;
+          right:-8px;
+          width:24px;
+          height:24px;
+          padding:0;
+          font-size:14px;
+          line-height:1;
+          text-decoration:none;
+        "
+      >
+        ×
+      </a>
+
+    </div>
+  <% }) %>
+</div>
             <div class="form-text">Upload gambar baru akan ditambahkan ke yang sudah ada.</div>
           </div>
 

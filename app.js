@@ -17,6 +17,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static('public'));
 app.use('/media', express.static(path.join(__dirname, 'media')));
+app.use(express.urlencoded({ extended: true }));
+
 
 // 5️⃣ DB (cukup require, JANGAN connect lagi)
 const db = require('./config/db');
@@ -128,19 +130,20 @@ const listBarangKeluar = Object.values(groupedBK);
 // ---------- PEMBELIAN PRODUK (create as PENDING) ----------
 app.post('/beli', async (req, res) => {
   try {
-    const { customer, produk_id, jumlah, keterangan } = req.body;
+    const { customer, produk_id, jumlah, harga_modal, harga, keterangan } = req.body;
 
     // validasi dasar (keterangan optional)
-    if (!customer || !produk_id || !jumlah) return res.status(400).send('Form tidak lengkap.');
+    if (!customer || !produk_id || !jumlah || !harga) return res.status(400).send('Form tidak lengkap.');
 
     const pid = parseInt(produk_id, 10);
     const qty = parseInt(jumlah, 10);
+    const hrg = parseInt(harga, 10);
     if (!Number.isInteger(pid) || !Number.isInteger(qty) || qty <= 0) return res.status(400).send('Data tidak valid.');
 
     const ket = (typeof keterangan === 'string' && keterangan.trim().length > 0) ? keterangan.trim() : null;
 
     // insert pembelian dengan status = 2 (pending)
-    await q('INSERT INTO pembelian (customer, produk_id, jumlah, keterangan, status) VALUES (?, ?, ?, ?, ?)', [customer.trim(), pid, qty, ket, 2]);
+    await q('INSERT INTO pembelian (customer, produk_id, jumlah, harga_modal, harga, keterangan, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [customer.trim(),pid,qty,harga_modal,hrg,ket,2]);
 
     // jangan update stock sekarang -> stok dikurangi saat marked complete
     return res.redirect('/');
@@ -300,184 +303,543 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// ========== EXPORT PDF PEMBELIAN (include status column, improved layout) ==========
+// ========== EXPORT PDF PEMBELIAN ==========
 app.get('/export/pembelian/pdf', async (req, res) => {
   try {
     const { start, end } = req.query;
-    if (!start || !end) return res.status(400).send('Parameter start & end required (YYYY-MM-DD).');
 
-    // validate date basic format
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
-      return res.status(400).send('Format tanggal invalid. Gunakan YYYY-MM-DD.');
+    if (!start || !end) {
+      return res.status(400).send('Parameter tanggal wajib.');
     }
 
     const sql = `
-      SELECT p.id, p.customer, p.jumlah, p.keterangan, p.tanggal, p.status, pr.nama AS produk_nama
+      SELECT 
+        p.id,
+        p.customer,
+        p.jumlah,
+        p.harga_modal,
+        p.harga,
+        p.keterangan,
+        p.tanggal,
+        p.status,
+        pr.nama AS produk_nama
       FROM pembelian p
-      LEFT JOIN produk pr ON p.produk_id = pr.id
+      LEFT JOIN produk pr
+        ON pr.id = p.produk_id
       WHERE DATE(p.tanggal) BETWEEN ? AND ?
       ORDER BY p.tanggal DESC
     `;
+
     const rows = await q(sql, [start, end]);
 
     const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    res.setHeader('Content-Type', 'application/Laporan-Pembelian');
-    res.setHeader('Content-Disposition', `inline; filename="Laporan_Pembelian_${start}_to_${end}.pdf"`);
+    const doc = new PDFDocument({
+      margin: 20,
+      size: 'A4',
+      layout: 'landscape'
+    });
+
+    // HEADER RESPONSE
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="laporan-pembelian-${start}-${end}.pdf"`
+    );
+
     doc.pipe(res);
 
-    const margin = 40;
+    // =============================
+    // CONFIG
+    // =============================
     const pageWidth = doc.page.width;
-    const contentWidth = pageWidth - margin * 2;
+    const margin = 30;
 
-    // column layout (tweak widths)
-    const colNoW = 30;
-    const colCustomerW = 100;
-    const colProductW = 100;
-    const colQtyW = 50;
-    const colStatusW = 70;
-    const colKetW = 100;
-    const colTanggalW = contentWidth - (colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW);
+    let y = 90;
 
-    const headerFontSize = 16;
-    const rowFontSize = 10;
-    const lineHeight = 14;
+    // Lebar kolom
+    const col = {
+  no: 25,
+  customer: 70,
+  produk: 170,
+  jumlah: 35,
+  modal: 85,
+  harga: 85,
+  total: 90,
+  profit: 90,
+  status: 60,
+  ket: 90,
+  tanggal: 95
+};
 
-    function drawHeader() {
-      doc.fontSize(headerFontSize).font('Helvetica-Bold').fillColor('black').text('Laporan Pembelian Produk', { align: 'center' });
-      doc.moveDown(0.2);
-      doc.fontSize(10).font('Helvetica').text(`Periode: ${start} s.d ${end}`, { align: 'center' });
-      doc.moveDown(0.6);
+    // =============================
+    // TITLE
+    // =============================
+    doc
+      .fontSize(18)
+      .font('Helvetica-Bold')
+      .text('LAPORAN PEMBELIAN', {
+        align: 'center'
+      });
 
-      // header row bg
-      const y = doc.y;
-      doc.save();
-      doc.opacity(0.04).rect(margin, y - 2, contentWidth, lineHeight + 6).fill();
-      doc.restore();
+    doc.moveDown(0.5);
 
-      doc.fontSize(11).font('Helvetica-Bold').fillColor('black');
-      doc.text('No', margin + 2, y, { width: colNoW - 2, align: 'center' });
-      doc.text('Seller', margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
-      doc.text('Produk', margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
-      doc.text('Jml', margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
-      doc.text('Status', margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
-      doc.text('Keterangan', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, y, { width: colKetW - 2, align: 'center' });
-      doc.text('Tanggal', margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, y, { width: colTanggalW - 2, align: 'center' });
+    doc
+      .fontSize(10)
+      .font('Helvetica')
+      .text(`Periode: ${start} s/d ${end}`, {
+        align: 'center'
+      });
 
-      doc.moveDown(1.2);
-      doc.font('Helvetica').fontSize(rowFontSize);
+    y = 100;
+
+    // =============================
+    // DRAW HEADER TABLE
+    // =============================
+    function drawTableHeader() {
+
+      doc.rect(margin, y, pageWidth - margin * 2, 25)
+        .fill('#eeeeee');
+
+      doc.fillColor('black')
+        .fontSize(10)
+        .font('Helvetica-Bold');
+
+      let x = margin;
+
+      doc.text('No', x, y + 7, {
+        width: col.no,
+        align: 'center'
+      });
+
+      x += col.no;
+
+      doc.text('Seller', x, y + 7, {
+        width: col.customer,
+        align: 'center'
+      });
+
+      x += col.customer;
+
+      doc.text('Produk', x, y + 7, {
+        width: col.produk,
+        align: 'center'
+      });
+
+      x += col.produk;
+
+      doc.text('Qty', x, y + 7, {
+        width: col.jumlah,
+        align: 'center'
+      });
+
+      x += col.jumlah;
+
+      doc.text('Modal', x, y + 7, {
+        width: col.modal,
+        align: 'center'
+      });
+
+      x += col.modal;
+
+      doc.text('Harga', x, y + 7, {
+        width: col.harga,
+        align: 'center'
+      });
+
+      x += col.harga;
+
+      doc.text('Total', x, y + 7, {
+        width: col.total,
+        align: 'center'
+      });
+
+      x += col.total;
+
+      doc.text('Profit', x, y + 7, {
+        width: col.profit,
+        align: 'center'
+      });
+
+      x += col.profit;
+
+      doc.text('Status', x, y + 7, {
+        width: col.status,
+        align: 'center'
+      });
+
+      x += col.status;
+
+      doc.text('Keterangan', x, y + 7, {
+        width: col.ket,
+        align: 'center'
+      });
+
+      x += col.ket;
+
+      doc.text('Tanggal', x, y + 7, {
+        width: col.tanggal,
+        align: 'center'
+      });
+
+      y += 25;
     }
 
-    function needNewPage(heightNeeded) {
-      const bottomLimit = doc.page.height - margin - 20;
-      if (doc.y + heightNeeded > bottomLimit) {
-        doc.addPage();
-        drawHeader();
-      }
-    }
+    drawTableHeader();
 
-    drawHeader();
+    // =============================
+    // DATA KOSONG
+    // =============================
+    if (!rows.length) {
 
-    if (!rows || rows.length === 0) {
-      doc.fontSize(11).fillColor('gray').text('Tidak ada data pada rentang tanggal ini.', margin, doc.y);
-      doc.moveDown(2);
-      doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+      doc.font('Helvetica')
+        .fontSize(11)
+        .text('Tidak ada data.', margin, y + 20);
+
       doc.end();
       return;
     }
 
-    rows.forEach((r, idx) => {
-      // prepare strings
-      const customerTxt = r.customer || '-';
-      const produkTxt = r.produk_nama || '-';
-      const qtyTxt = String(r.jumlah ?? '-');
-      const statusTxt = (r.status == 1 || r.status === 1) ? 'Selesai' : (r.status == 2 ? 'Pending' : (r.status === '1' ? 'Selesai' : (r.status === '2' ? 'Pending' : String(r.status || '-'))));
-      const ketTxt = r.keterangan || '-';
-      const tglTxt = r.tanggal ? new Date(r.tanggal).toLocaleString('id-ID') : '-';
+    function rupiah(angka) {
+      return 'Rp ' + Number(angka || 0).toLocaleString('id-ID');
+    }
 
-      // calculate expected height (wrap-aware)
-      const hNo = doc.heightOfString(String(idx + 1), { width: colNoW - 2 });
-      const hCust = doc.heightOfString(customerTxt, { width: colCustomerW - 2 });
-      const hProd = doc.heightOfString(produkTxt, { width: colProductW - 2 });
-      const hQty = doc.heightOfString(qtyTxt, { width: colQtyW - 2 });
-      const hStatus = doc.heightOfString(statusTxt, { width: colStatusW - 2 });
-      const hKet = doc.heightOfString(ketTxt, { width: colKetW - 2 });
-      const hTgl = doc.heightOfString(tglTxt, { width: colTanggalW - 2 });
+    let grandTotal = 0;
+    let grandProfit = 0;
+    // =============================
+    // LOOP DATA
+    // =============================
+    rows.forEach((r, index) => {
 
-      const maxH = Math.max(hNo, hCust, hProd, hQty, hStatus, hKet, hTgl, lineHeight);
-
-      needNewPage(maxH + 6);
-
-      const y = doc.y;
-      doc.fontSize(rowFontSize).fillColor('black').text(String(idx + 1), margin + 2, y, { width: colNoW - 2, align: 'center' });
-      doc.text(customerTxt, margin + colNoW + 2, y, { width: colCustomerW - 2, align: 'center' });
-      doc.text(produkTxt, margin + colNoW + colCustomerW + 2, y, { width: colProductW - 2, align: 'center' });
-      doc.text(qtyTxt, margin + colNoW + colCustomerW + colProductW + 2, y, { width: colQtyW - 2, align: 'center' });
-
-      // status with slight color (green/gray)
-      if (statusTxt.toLowerCase() === 'selesai') doc.fillColor('#1b7a1b');
-      else if (statusTxt.toLowerCase() === 'pending') doc.fillColor('#b02a2a');
-      else doc.fillColor('black');
-      doc.text(statusTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + 2, y, { width: colStatusW - 2, align: 'center' });
-
-      // restore color for next columns
-      doc.fillColor('black');
-      doc.text(ketTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + 2, y, { width: colKetW - 2, align: 'center' });
-      doc.text(tglTxt, margin + colNoW + colCustomerW + colProductW + colQtyW + colStatusW + colKetW + 2, y, { width: colTanggalW - 2, align: 'center' });
-
-      // move down by approx one line of maxH
-      doc.moveDown(Math.max(1, Math.ceil(maxH / lineHeight)));
+  // PAGE BREAK
+  if (y > 500) {
+    doc.addPage({
+      layout: 'landscape'
     });
 
-    doc.moveDown(0.6);
-    doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
+    y = 40;
+    drawTableHeader();
+  }
+
+  const status =
+    Number(r.status) === 1
+      ? 'Selesai'
+      : 'Pending';
+
+  const tanggal = r.tanggal
+    ? new Date(r.tanggal).toLocaleString('id-ID')
+    : '-';
+
+  // =========================
+  // PERHITUNGAN
+  // =========================
+  const hargaModal = Number(r.harga_modal || 0);
+  const hargaJual = Number(r.harga || 0);
+  const qty = Number(r.jumlah || 0);
+
+  const totalModal = hargaModal * qty;
+  const totalHarga = hargaJual * qty;
+  const keuntungan = totalHarga - totalModal;
+
+  grandTotal += totalHarga;
+  grandProfit += keuntungan;
+
+  // =========================
+  // TINGGI ROW
+  // =========================
+  const rowHeight = 55;
+
+  // BORDER ROW
+  doc.rect(
+    margin,
+    y,
+    pageWidth - margin * 2,
+    rowHeight
+  ).stroke('#cccccc');
+
+  doc.font('Helvetica')
+    .fontSize(9)
+    .fillColor('black');
+
+  let x = margin;
+
+  // NO
+  doc.text(String(index + 1), x, y + 10, {
+    width: col.no,
+    align: 'center'
+  });
+
+  x += col.no;
+
+  // SELLER
+  doc.text(r.customer || '-', x + 3, y + 10, {
+    width: col.customer,
+    align: 'left'
+  });
+
+  x += col.customer;
+
+  // PRODUK
+  doc.text(r.produk_nama || '-', x + 3, y + 8, {
+    width: col.produk - 5,
+    align: 'left'
+  });
+
+  x += col.produk;
+
+  // QTY
+  doc.text(String(qty), x, y + 10, {
+    width: col.jumlah,
+    align: 'center'
+  });
+
+  x += col.jumlah;
+
+  // MODAL
+  doc.text(rupiah(hargaModal), x, y + 10, {
+    width: col.modal,
+    align: 'right'
+  });
+
+  x += col.modal;
+
+  // HARGA
+  doc.text(rupiah(hargaJual), x, y + 10, {
+    width: col.harga,
+    align: 'right'
+  });
+
+  x += col.harga;
+
+  // TOTAL
+  doc.text(rupiah(totalHarga), x, y + 10, {
+    width: col.total,
+    align: 'right'
+  });
+
+  x += col.total;
+
+  // PROFIT
+  doc.fillColor(
+    keuntungan >= 0 ? 'green' : 'red'
+  );
+
+  doc.text(rupiah(keuntungan), x, y + 10, {
+    width: col.profit,
+    align: 'right'
+  });
+
+  x += col.profit + 10;
+
+  // STATUS
+  doc.fillColor(
+    status === 'Selesai'
+      ? 'green'
+      : 'red'
+  );
+
+  doc.text(status, x, y + 10, {
+    width: col.status,
+    align: 'center'
+  });
+
+  x += col.status + 12;
+
+  // KETERANGAN
+  doc.fillColor('black');
+
+  doc.text(r.keterangan || '-', x, y + 10, {
+    width: col.ket,
+    align: 'left'
+  });
+
+  x += col.ket + 5;
+
+  // TANGGAL
+  doc.text(tanggal, x, y + 10, {
+    width: col.tanggal,
+    align: 'center'
+  });
+
+  y += rowHeight;
+});
+    // =============================
+    // FOOTER
+    // =============================
+    y += 20;
+
+    doc.font('Helvetica-Bold')
+      .fontSize(11)
+      .fillColor('black')
+      .text(
+        `GRAND TOTAL : ${rupiah(grandTotal)}`,
+        20,
+        y,
+        {
+          align: 'right'
+        }
+      );
+      y += 18;
+
+    doc.font('Helvetica-Bold')
+      .fontSize(11)
+      .fillColor('green')
+      .text(
+        `TOTAL PROFIT : ${rupiah(grandProfit)}`,
+        20,
+        y,
+        {
+          align: 'right'
+        }
+      );
+
+    doc.moveDown(2);
+
+    doc.fontSize(8)
+      .fillColor('gray')
+      .text(
+        `Generated: ${new Date().toLocaleString('id-ID')}`,
+        margin,
+        y + 20,
+        {
+          align: 'right'
+        }
+      );
 
     doc.end();
+
   } catch (err) {
-    console.error('/export/pembelian/pdf error:', err);
-    try { if (!res.headersSent) res.status(500).send('Gagal generate PDF pembelian.'); } catch(_) {}
+
+    console.error('EXPORT PDF ERROR:', err);
+
+    if (!res.headersSent) {
+      res.status(500).send('Gagal generate PDF');
+    }
   }
 });
 
-
-
-// ==== POST /produk -> tambah produk + gambar + stok_awal ====
 app.post('/produk', upload.array('gambar', 6), async (req, res) => {
+
   try {
+
     const nama = (req.body.nama || '').trim();
-    const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
-    const stokAwal = parseInt(req.body.stok_awal, 10) || 0;
-    const posisi = req.body.posisi ? (req.body.posisi.trim() || null) : null;
-    const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
 
-    if (!nama) return res.status(400).send('Nama produk wajib diisi.');
+    const keterangan = req.body.keterangan
+      ? req.body.keterangan.trim()
+      : null;
 
-    // gabungkan nama file yang diupload jadi string dipisah koma
-    let gambarField = '';
+    const brand_id = req.body.brand_id
+      ? parseInt(req.body.brand_id)
+      : null;
+
+    const posisi = req.body.posisi
+      ? req.body.posisi.trim()
+      : null;
+
+    const stokAwal = parseInt(
+      req.body.stok_awal || 0
+    );
+
+    // ======================================
+    // GENERATE KODE PRODUK OTOMATIS
+    // ======================================
+
+    const lastProduk = await q(`
+      SELECT kode_produk
+      FROM produk
+      ORDER BY CAST(
+        REPLACE(
+          UPPER(kode_produk),
+          'P',
+          ''
+        ) AS UNSIGNED
+      ) DESC
+      LIMIT 1
+    `);
+
+    let kode_produk = 'P1';
+
+    if (lastProduk.length > 0) {
+
+      const lastKode =
+        lastProduk[0].kode_produk || 'P0';
+
+      const nomor = parseInt(
+        lastKode.replace(/[^0-9]/g, '')
+      ) || 0;
+
+      kode_produk = 'P' + (nomor + 1);
+
+    }
+
+    // ======================================
+    // GAMBAR
+    // ======================================
+
+    let gambar = '';
+
     if (req.files && req.files.length > 0) {
-      gambarField = req.files.map(f => f.filename).join(',');
-    } else {
-      gambarField = '';
+
+      gambar = req.files
+        .map(f => f.filename)
+        .join(',');
+
     }
 
-    // insert produk
-    const ins = await q('INSERT INTO produk (nama, gambar, keterangan, posisi, brand_id) VALUES (?, ?, ?, ?, ?)', [nama, gambarField, keterangan, posisi, brand_id]);
-    const newId = ins.insertId;
+    // ======================================
+    // INSERT PRODUK
+    // ======================================
 
-    // insert atau update stock: tambahkan stokAwal jika >0
-    if (stokAwal > 0) {
-      await q(
-        'INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)',
-        [newId, stokAwal]
-      );
-    }
+    const result = await q(`
+      INSERT INTO produk (
+        nama,
+        kode_produk,
+        keterangan,
+        gambar,
+        brand_id,
+        posisi
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      nama,
+      kode_produk,
+      keterangan,
+      gambar,
+      brand_id,
+      posisi
+    ]);
 
-    return res.redirect('/produk');
+    const produkId = result.insertId;
+
+    // ======================================
+    // INSERT STOK JAKARTA
+    // ======================================
+
+    await q(`
+      INSERT INTO stock_cabang (
+        produk_id,
+        cabang_id,
+        jumlah
+      )
+      VALUES (?, ?, ?)
+    `, [
+      produkId,
+      1,
+      stokAwal
+    ]);
+
+    res.redirect('/produk');
+
   } catch (err) {
-    console.error('POST /produk error:', err);
-    return res.status(500).send('Gagal menyimpan produk.');
+
+    console.error('POST /produk ERROR:', err);
+
+    res.status(500).send(
+      'Gagal tambah produk'
+    );
+
   }
+
 });
 
 // ---- helper: cek apakah tabel/kolom ada ----
@@ -491,116 +853,911 @@ async function columnExists(tableName, columnName) {
   return rows && rows.length && rows[0].cnt > 0;
 }
 
+const XLSX = require('xlsx');
+const excelStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
+});
+
+const uploadExcel = multer({
+  storage: excelStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+});
+app.post(
+  '/produk/import-excel',
+  uploadExcel.single('excel'),
+  async (req, res) => {
+
+    try {
+
+      if (!req.file) {
+        return res.status(400).send('File wajib diupload');
+      }
+
+      const workbook = XLSX.readFile(req.file.path);
+
+      const sheetName = workbook.SheetNames[0];
+
+      const sheet = workbook.Sheets[sheetName];
+
+      const data = XLSX.utils.sheet_to_json(sheet);
+
+      for (const row of data) {
+
+        const kode_produk = row.kode_produk
+          ? String(row.kode_produk).trim().toUpperCase()
+          : null;
+
+        const nama = row.nama
+          ? String(row.nama).trim()
+          : null;
+
+        const stok = parseInt(row.stok || 0);
+
+        const keterangan = row.keterangan
+          ? String(row.keterangan).trim()
+          : null;
+
+        const posisi = row.posisi
+          ? String(row.posisi).trim()
+          : null;
+
+        if (!nama) continue;
+
+        // cek produk existing
+        const existing = await q(
+          'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
+          [kode_produk]
+        );
+
+        if (existing.length > 0) {
+
+          const produkId = existing[0].id;
+
+          // update stok
+          await q(`
+            INSERT INTO stock (produk_id, jumlah)
+            VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE
+            jumlah = jumlah + VALUES(jumlah)
+          `, [produkId, stok]);
+
+        } else {
+
+          // insert produk dulu
+const ins = await q(`
+  INSERT INTO produk
+  (
+    nama,
+    gambar,
+    keterangan
+  )
+  VALUES (?, ?, ?)
+`, [
+  nama,
+  '',
+  keterangan
+]);
+
+const produkId = ins.insertId;
+
+// update kode produk setelah insert
+await q(`
+  UPDATE produk
+  SET kode_produk = ?
+  WHERE id = ?
+`, [
+  nextKode,
+  produkId
+]);
+
+console.log('KODE PRODUK:', nextKode);
+        }
+      }
+
+      return res.redirect('/produk');
+
+    } catch (err) {
+
+      console.error(err);
+
+      return res.status(500).send('Gagal import excel');
+    }
+  }
+);
+
+const mammoth = require('mammoth');
+const uploadWord = multer({
+  storage: excelStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+});
+
+app.post(
+  '/produk/import-word',
+  uploadWord.single('word'),
+  async (req, res) => {
+
+    try {
+
+      if (!req.file) {
+        return res.status(400).send('File wajib diupload');
+      }
+
+      // baca word
+      const result = await mammoth.extractRawText({
+        path: req.file.path
+      });
+
+      const text = result.value;
+
+      const lines = text
+        .split('\n')
+        .map(v => v.trim())
+        .filter(v => v);
+
+      // =========================
+      // MULAI LOOP
+      // =========================
+
+      let nomor = 1;
+      let berhasil = 0;
+
+      for (const line of lines) {
+
+        console.log('LINE:', line);
+
+        if (line.length < 3) {
+          continue;
+        }
+
+        // batasi panjang nama
+        let namaProduk = line.trim();
+
+        if (namaProduk.length > 95) {
+          namaProduk = namaProduk.substring(0, 95);
+        }
+
+        // kode produk otomatis
+        const kodeProduk = 'P' + nomor;
+
+        // =========================
+        // DETEKSI BRAND
+        // =========================
+
+        let brandName = 'RANDOM';
+
+        const upperNama = namaProduk.toUpperCase();
+
+        if (upperNama.includes('ASUS')) {
+          brandName = 'ASUS';
+        }
+        else if (upperNama.includes('ACER')) {
+          brandName = 'ACER';
+        }
+        else if (upperNama.includes('ADVAN')) {
+          brandName = 'ADVAN';
+        }
+        else if (upperNama.includes('AXIOO')) {
+          brandName = 'AXIOO';
+        }
+        else if (upperNama.includes('DELL')) {
+          brandName = 'DELL';
+        }
+        else if (upperNama.includes('HP')) {
+          brandName = 'HP';
+        }
+        else if (upperNama.includes('LENOVO')) {
+          brandName = 'LENOVO';
+        }
+        else if (upperNama.includes('SAMSUNG')) {
+          brandName = 'SAMSUNG';
+        }
+        else if (upperNama.includes('ZYREX')) {
+          brandName = 'ZYREX';
+        }
+
+        // cari brand_id
+        const brandResult = await q(
+          'SELECT id FROM brand WHERE UPPER(nama) = ? LIMIT 1',
+          [brandName]
+        );
+
+        let brandId = null;
+
+        if (brandResult.length > 0) {
+          brandId = brandResult[0].id;
+        }
+
+        // cek duplikat
+        const cek = await q(
+          'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
+          [kodeProduk]
+        );
+
+        if (cek.length > 0) {
+          console.log('SKIP:', kodeProduk);
+          nomor++;
+          continue;
+        }
+
+        // insert produk
+        const ins = await q(`
+          INSERT INTO produk
+          (
+            kode_produk,
+            nama,
+            gambar,
+            keterangan,
+            brand_id
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `, [
+          kodeProduk,
+          namaProduk,
+          '',
+          '',
+          brandId
+        ]);
+
+        // stok otomatis
+        await q(`
+          INSERT INTO stock
+          (
+            produk_id,
+            jumlah
+          )
+          VALUES (?, ?)
+        `, [
+          ins.insertId,
+          1
+        ]);
+
+        console.log(
+          'BERHASIL:',
+          kodeProduk,
+          namaProduk,
+          'BRAND:',
+          brandName
+        );
+
+        nomor++;
+        berhasil++;
+      }
+
+      console.log('TOTAL BERHASIL:', berhasil);
+
+      return res.redirect('/produk');
+
+    } catch (err) {
+
+      console.error(err);
+
+      return res.status(500).send('Gagal import word');
+    }
+  }
+);
+
+// ======================================================
+// HALAMAN STOK SEMARANG
+// ======================================================
+app.get('/stok/semarang', async (req, res) => {
+
+  try {
+
+    const sql = `
+      SELECT
+        p.id,
+        p.kode_produk,
+        p.nama,
+        p.gambar,
+        p.keterangan,
+        p.posisi,
+
+        COALESCE(sc.jumlah, 0) AS stok_semarang
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id = p.id
+        AND sc.cabang_id = 2
+
+      ORDER BY
+
+        CASE
+          WHEN COALESCE(sc.jumlah, 0) > 0 THEN 0
+          ELSE 1
+        END,
+
+        CAST(
+          REPLACE(
+            UPPER(p.kode_produk),
+            'P',
+            ''
+          ) AS UNSIGNED
+        ) ASC
+    `;
+
+    const rows = await q(sql);
+
+    const produk = rows.map(p => ({
+      ...p,
+      gambar_list: p.gambar
+        ? p.gambar.split(',')
+        : []
+    }));
+
+    res.render('stok_semarang', {
+      produk
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal load stok semarang'
+    );
+
+  }
+
+});
+
+// ========================================
+// TAMBAH PRODUK KHUSUS SEMARANG
+// ========================================
+app.post('/stok-semarang/tambah', async (req, res) => {
+
+  try {
+
+    const {
+      kode_produk,
+      nama,
+      stok,
+      posisi
+    } = req.body;
+
+    // =========================
+    // INSERT PRODUK
+    // =========================
+    const result = await q(`
+      INSERT INTO produk (
+        kode_produk,
+        nama,
+        posisi
+      )
+      VALUES (?, ?, ?)
+    `, [
+      kode_produk,
+      nama,
+      posisi || null
+    ]);
+
+    const produkId = result.insertId;
+
+    // =========================
+    // INSERT STOK SEMARANG
+    // =========================
+    await q(`
+      INSERT INTO stock_cabang (
+        produk_id,
+        cabang_id,
+        jumlah
+      )
+      VALUES (?, ?, ?)
+    `, [
+      produkId,
+      2,
+      stok
+    ]);
+
+    res.redirect('/stok/semarang');
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).send('Gagal tambah produk semarang');
+
+  }
+
+});
+
+// ======================================================
+// HALAMAN STOK JAKARTA
+// ======================================================
+app.get('/stok/jakarta', async (req, res) => {
+
+  try {
+
+    const sql = `
+      SELECT
+        p.id,
+        p.kode_produk,
+        p.nama,
+        p.gambar,
+        p.keterangan,
+        p.posisi,
+
+        COALESCE(sc.jumlah, 0) AS stok_jakarta
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id = p.id
+        AND sc.cabang_id = 1
+
+      ORDER BY
+
+        CASE
+          WHEN COALESCE(sc.jumlah, 0) > 0 THEN 0
+          ELSE 1
+        END,
+
+        CAST(
+          REPLACE(
+            UPPER(p.kode_produk),
+            'P',
+            ''
+          ) AS UNSIGNED
+        ) ASC
+    `;
+
+    const rows = await q(sql);
+
+    const produk = rows.map(p => ({
+
+      ...p,
+
+      gambar_list: p.gambar
+        ? p.gambar.split(',')
+        : [],
+
+      keluar_ke_semarang: 0,
+
+      sisa_stok: p.stok_jakarta
+
+    }));
+
+    res.render('stok_jakarta', {
+      produk
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal load stok jakarta'
+    );
+
+  }
+
+});
+
+// ======================================================
+// TRANSFER STOCK ANTAR CABANG
+// ======================================================
+app.post('/transfer-stock', async (req, res) => {
+
+  try {
+
+    let {
+      produk_id,
+      dari_cabang,
+      ke_cabang,
+      jumlah
+    } = req.body;
+
+    produk_id = Number(produk_id);
+    dari_cabang = Number(dari_cabang);
+    ke_cabang = Number(ke_cabang);
+    jumlah = Number(jumlah);
+
+    // =========================
+    // VALIDASI
+    // =========================
+    if (!produk_id || !dari_cabang || !ke_cabang || !jumlah) {
+
+      return res.send(
+        'Data transfer tidak lengkap'
+      );
+
+    }
+
+    // =========================
+    // CEK STOK ASAL
+    // =========================
+    const stokAsal = await q(`
+      SELECT *
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = ?
+    `, [
+      produk_id,
+      dari_cabang
+    ]);
+
+    if (!stokAsal.length) {
+
+      return res.send(
+        'Stok asal tidak ditemukan'
+      );
+
+    }
+
+    if (stokAsal[0].jumlah < jumlah) {
+
+      return res.send(
+        'Stok tidak cukup'
+      );
+
+    }
+
+    // =========================
+    // KURANGI STOK ASAL
+    // =========================
+    await q(`
+      UPDATE stock_cabang
+      SET jumlah = jumlah - ?
+      WHERE produk_id = ?
+      AND cabang_id = ?
+    `, [
+      jumlah,
+      produk_id,
+      dari_cabang
+    ]);
+
+    // =========================
+    // CEK STOK TUJUAN
+    // =========================
+    const stokTujuan = await q(`
+      SELECT *
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = ?
+    `, [
+      produk_id,
+      ke_cabang
+    ]);
+
+    // =========================
+    // UPDATE / INSERT TUJUAN
+    // =========================
+    if (stokTujuan.length > 0) {
+
+      await q(`
+        UPDATE stock_cabang
+        SET jumlah = jumlah + ?
+        WHERE produk_id = ?
+        AND cabang_id = ?
+      `, [
+        jumlah,
+        produk_id,
+        ke_cabang
+      ]);
+
+    } else {
+
+      await q(`
+        INSERT INTO stock_cabang (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+        VALUES (?, ?, ?)
+      `, [
+        produk_id,
+        ke_cabang,
+        jumlah
+      ]);
+
+    }
+
+    // =========================
+    // SIMPAN HISTORI TRANSFER
+    // =========================
+    await q(`
+      INSERT INTO transfer_stok (
+        produk_id,
+        dari_cabang,
+        ke_cabang,
+        jumlah
+      )
+      VALUES (?, ?, ?, ?)
+    `, [
+      produk_id,
+      dari_cabang,
+      ke_cabang,
+      jumlah
+    ]);
+
+    res.redirect('/stok/semarang');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Transfer gagal'
+    );
+
+  }
+
+});
+
 // ======================================================
 // GET /produk 
 // ======================================================
 app.get('/produk', async (req, res) => {
+
   try {
 
-    // === 1. Cek apakah tabel brand ada ===
+    // === cek tabel brand ===
     const brandTableExists = (
       await q(`
-        SELECT COUNT(*) AS cnt 
-        FROM information_schema.tables 
-        WHERE table_schema = DATABASE() 
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
         AND table_name = 'brand'
       `)
     )[0].cnt > 0;
 
-    // === 2. Deteksi kolom brand (name atau nama) ===
     let brandColumn = null;
+
     if (brandTableExists) {
-      if (await columnExists('brand', 'name')) brandColumn = 'name';
-      else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
+
+      if (await columnExists('brand', 'name')) {
+        brandColumn = 'name';
+      }
+
+      else if (await columnExists('brand', 'nama')) {
+        brandColumn = 'nama';
+      }
+
     }
 
-    // === 3. Query produk + stok + brand (jika ada) ===
+    // =========================================
+    // AMBIL STOK DARI stock_cabang
+    // cabang_id = 1 (JAKARTA)
+    // =========================================
     const sql = `
-      SELECT 
-        produk.*, 
-        IFNULL(stock.jumlah, 0) AS jumlah_stok
-        ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
-      FROM produk
-      LEFT JOIN stock 
-        ON produk.id = stock.produk_id
-      ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
+      SELECT
+        p.*,
 
-      ORDER BY 
-        CASE 
-          WHEN IFNULL(stock.jumlah, 0) <= 0 THEN 1
-          ELSE 0
-        END ASC,
-        produk.id ASC
+        COALESCE(sc.jumlah, 0) AS jumlah_stok,
+
+        b.nama AS brand_name
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id = p.id
+        AND sc.cabang_id = 1
+
+      LEFT JOIN brand b
+        ON b.id = p.brand_id
+
+      ORDER BY
+
+        CASE
+          WHEN COALESCE(sc.jumlah, 0) > 0 THEN 0
+          ELSE 1
+        END,
+
+        CAST(
+          REPLACE(
+            UPPER(p.kode_produk),
+            'P',
+            ''
+          ) AS UNSIGNED
+        ) ASC
     `;
 
     const results = await q(sql);
 
-    // === 4. Format hasil produk ===
     const produk = results.map(item => ({
+
       ...item,
-      gambar_list: item.gambar ? item.gambar.split(',') : [],
+
+      gambar_list: item.gambar
+        ? item.gambar.split(',')
+        : [],
+
       brand_name: item.brand_name ?? null,
+
       posisi: item.posisi ?? null
+
     }));
 
-    // === 5. Ambil daftar brand untuk filter (jika tabel ada) ===
     let brands = [];
+
     if (brandTableExists) {
+
       brands = await q(`
-        SELECT id, ${brandColumn || 'nama'} AS name 
-        FROM brand 
+        SELECT
+          id,
+          ${brandColumn || 'nama'} AS name
+        FROM brand
         ORDER BY ${brandColumn || 'nama'} ASC
       `);
+
     }
 
-    // === 6. Render ===
-    res.render('produk', { produk, brands });
+    res.render('produk', {
+      produk,
+      brands
+    });
 
   } catch (err) {
+
     console.error('GET /produk error:', err);
-    res.status(500).send('Gagal mengambil data produk.');
+
+    res.status(500).send(
+      'Gagal mengambil data produk.'
+    );
+
   }
+
 });
 
-// ---- GET /produk/:id (show) - robust terhadap brand column name ----
+// ---- GET /produk/:id (show) ----
 app.get('/produk/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(404).send('Produk tidak ditemukan.');
 
-    // cek brand kolom seperti di atas
-    const brandTableExists = (await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'"))[0].cnt > 0;
-    let brandColumn = null;
-    if (brandTableExists) {
-      if (await columnExists('brand', 'name')) brandColumn = 'name';
-      else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
+  try {
+
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
     }
 
+    // =========================================
+    // CEK BRAND
+    // =========================================
+
+    const brandTableExists = (
+      await q(`
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+        AND table_name = 'brand'
+      `)
+    )[0].cnt > 0;
+
+    let brandColumn = null;
+
+    if (brandTableExists) {
+
+      if (await columnExists('brand', 'name')) {
+        brandColumn = 'name';
+      }
+
+      else if (
+        await columnExists('brand', 'nama')
+      ) {
+        brandColumn = 'nama';
+      }
+
+    }
+
+    // =========================================
+    // QUERY PRODUK
+    // =========================================
+
     const sql = `
-      SELECT produk.*, IFNULL(stock.jumlah,0) AS jumlah_stok
-      ${brandColumn ? `, b.${brandColumn} AS brand_name` : ''}
-      FROM produk
-      LEFT JOIN stock ON produk.id = stock.produk_id
-      ${brandColumn ? `LEFT JOIN brand b ON produk.brand_id = b.id` : ''}
-      WHERE produk.id = ? LIMIT 1
+      SELECT 
+        p.*,
+
+        COALESCE(s.jumlah, 0)
+        AS jumlah_stok,
+
+        b.nama AS brand_name
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang s
+        ON s.produk_id = p.id
+        AND s.cabang_id = 1
+
+      LEFT JOIN brand b
+        ON b.id = p.brand_id
+
+      WHERE p.id = ?
+
+      LIMIT 1
     `;
+
+    // INI YANG TADI HILANG
     const rows = await q(sql, [id]);
-    if (!rows || rows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
+
+    if (!rows || rows.length === 0) {
+
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
+
+    }
 
     const p = rows[0];
-    p.gambar_list = p.gambar ? p.gambar.split(',') : [];
+
+    p.gambar_list = p.gambar
+      ? p.gambar.split(',')
+      : [];
+
     p.posisi = p.posisi ?? null;
-    p.brand_name = p.brand_name ?? null;
 
-    // juga ambil stok saat ini supaya edit view bisa tampilkan
-    const stokRows = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [id]);
-    const stok = (stokRows && stokRows.length > 0) ? stokRows[0].jumlah : 0;
+    p.brand_name =
+      p.brand_name ?? null;
 
-    res.render('produk_show', { p, stok, brands: brandTableExists ? await q('SELECT id, ' + (brandColumn || 'nama') + ' AS name FROM brand ORDER BY ' + (brandColumn || 'nama') + ' ASC') : [] });
+    // =========================================
+    // AMBIL STOK
+    // =========================================
+
+    const stokRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = 1
+      LIMIT 1
+    `, [id]);
+
+    const stok =
+      stokRows.length > 0
+      ? stokRows[0].jumlah
+      : 0;
+
+    // =========================================
+    // AMBIL BRANDS
+    // =========================================
+
+    let brands = [];
+
+    if (brandTableExists) {
+
+      brands = await q(`
+        SELECT
+          id,
+          ${brandColumn || 'nama'}
+          AS name
+        FROM brand
+        ORDER BY
+          ${brandColumn || 'nama'} ASC
+      `);
+
+    }
+
+    // =========================================
+    // RENDER
+    // =========================================
+
+    res.render('produk_show', {
+      p,
+      stok,
+      brands
+    });
+
   } catch (err) {
-    console.error('GET /produk/:id error:', err);
-    res.status(500).send('Server error.');
+
+    console.error(
+      'GET /produk/:id error:',
+      err
+    );
+
+    res
+      .status(500)
+      .send('Server error.');
+
   }
+
 });
 
 // ==== GET /produk/:id/edit (robust terhadap brand.name vs brand.nama) ====
@@ -657,6 +1814,54 @@ app.get('/produk/:id/edit', async (req, res) => {
   }
 });
 
+// ==== HAPUS GAMBAR PRODUK ====
+app.get('/produk/:id/hapus-gambar/:filename', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const filename = req.params.filename;
+
+    if (!id || !filename) {
+      return res.status(400).send('Data tidak valid');
+    }
+
+    // ambil gambar sekarang
+    const rows = await q(
+      'SELECT gambar FROM produk WHERE id = ? LIMIT 1',
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).send('Produk tidak ditemukan');
+    }
+
+    let gambarList = rows[0].gambar
+      ? rows[0].gambar.split(',')
+      : [];
+
+    // hapus gambar dari list
+    gambarList = gambarList.filter(g => g !== filename);
+
+    // update database
+    await q(
+      'UPDATE produk SET gambar = ? WHERE id = ?',
+      [gambarList.join(','), id]
+    );
+
+    // hapus file fisik
+    const filePath = path.join(__dirname, 'media', filename);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.redirect('/produk/' + id + '/edit');
+
+  } catch (err) {
+    console.error('HAPUS GAMBAR ERROR:', err);
+    res.status(500).send('Gagal hapus gambar');
+  }
+});
+
 app.post('/produk/:id/delete', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -691,6 +1896,7 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
     if (!id) return res.status(404).send('Produk tidak ditemukan.');
 
     const nama = (req.body.nama || '').trim();
+    const kode_produk = req.body.kode_produk ? req.body.kode_produk.trim().toUpperCase() : null;
     const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
     const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
     const posisi = req.body.posisi ? (req.body.posisi.trim() || null) : null;
@@ -710,22 +1916,71 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
     }
 
     // update produk
-    await q('UPDATE produk SET nama = ?, keterangan = ?, gambar = ?, brand_id = ?, posisi = ? WHERE id = ?', [nama, keterangan, currentGambar, brand_id, posisi, id]);
+    await q(
+      'UPDATE produk SET nama = ?, kode_produk = ?, keterangan = ?, gambar = ?, brand_id = ?, posisi = ? WHERE id = ?',
+      [nama, kode_produk, keterangan, currentGambar, brand_id, posisi, id]
+    );
 
-    // update stock jika ada perubahan stok
-    if (stokChange !== 0) {
-      if (stokChange > 0) {
-        await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)', [id, stokChange]);
-      } else {
-        // negative change - subtract
-        const abs = Math.abs(stokChange);
-        // pastikan tidak jadi negatif
-        const r = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [id]);
-        const cur = (r && r.length > 0) ? r[0].jumlah : 0;
-        const newVal = Math.max(0, cur - abs);
-        await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = ?', [id, newVal, newVal]);
-      }
+    // ======================================================
+// UPDATE STOK CABANG JAKARTA
+// cabang_id = 1
+// ======================================================
+if (stokChange !== 0) {
+
+  // cek stok jakarta
+  const stokRows = await q(`
+    SELECT *
+    FROM stock_cabang
+    WHERE produk_id = ?
+    AND cabang_id = 1
+    LIMIT 1
+  `, [id]);
+
+  // =====================================
+  // JIKA STOK SUDAH ADA
+  // =====================================
+  if (stokRows.length > 0) {
+
+    const stokSekarang = stokRows[0].jumlah;
+
+    let stokBaru = stokSekarang + stokChange;
+
+    // agar tidak minus
+    if (stokBaru < 0) {
+      stokBaru = 0;
     }
+
+    await q(`
+      UPDATE stock_cabang
+      SET jumlah = ?
+      WHERE produk_id = ?
+      AND cabang_id = 1
+    `, [
+      stokBaru,
+      id
+    ]);
+
+  } else {
+
+    // =====================================
+    // JIKA BELUM ADA STOK
+    // =====================================
+    await q(`
+      INSERT INTO stock_cabang (
+        produk_id,
+        cabang_id,
+        jumlah
+      )
+      VALUES (?, ?, ?)
+    `, [
+      id,
+      1,
+      Math.max(0, stokChange)
+    ]);
+
+  }
+
+}
 
     return res.redirect('/produk/' + id);
   } catch (err) {
