@@ -1798,7 +1798,7 @@ app.get('/produk/:id/edit', async (req, res) => {
     p.gambar_list = p.gambar ? p.gambar.split(',') : [];
 
     // ambil stok
-    const s = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [id]);
+    const s = await q('SELECT jumlah FROM stock_cabang WHERE produk_id = ? LIMIT 1', [id]);
     const stok = (s && s.length > 0) ? s[0].jumlah : 0;
 
     res.render('produk_edit', { p, brands, stok });
@@ -1862,7 +1862,7 @@ app.post('/produk/:id/delete', async (req, res) => {
     if (!id) return res.status(400).send('ID tidak valid');
 
     // hapus stok dulu (opsional tapi disarankan)
-    await q('DELETE FROM stock WHERE produk_id = ?', [id]);
+    await q('DELETE FROM stock_cabang WHERE produk_id = ?', [id]);
 
     // hapus produk
     await q('DELETE FROM produk WHERE id = ?', [id]);
@@ -3655,7 +3655,7 @@ app.get('/export/all/pdf', async (req, res) => {
 });
 
 // 7️⃣ LISTEN HARUS PALING BAWAH
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
