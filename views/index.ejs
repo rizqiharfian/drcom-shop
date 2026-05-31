@@ -94,9 +94,50 @@
             <!-- searchable select menggunakan Select2 -->
             <select name="produk_id" id="produk_id" class="form-select" required>
               <option value=""></option>
+
               <% produk.forEach(p => { %>
-                <option value="<%= p.id %>"><%= p.nama %> (Stok: <%= p.jumlah_stok %>)</option>
+
+                <% if (p.total_stok > 0) { %>
+
+                  <option value="<%= p.id %>">
+                    <%= p.kode_tampil %> -
+                    <%= p.nama %>
+
+                    | JKT:
+                    <%= p.stok_jakarta %>
+
+                    | SMG:
+                    <%= p.stok_semarang %>
+                  </option>
+
+                <% } %>
+
               <% }) %>
+            </select>
+          </div>
+
+          <div class="col-md-2">
+            <label for="cabang_id" class="form-label">
+              Cabang
+            </label>
+
+            <select
+              name="cabang_id"
+              id="cabang_id"
+              class="form-select"
+              required
+            >
+              <option value="">
+                Pilih Cabang
+              </option>
+
+              <option value="1">
+                Jakarta
+              </option>
+
+              <option value="2">
+                Semarang
+              </option>
             </select>
           </div>
 

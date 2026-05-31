@@ -53,15 +53,101 @@ app.use((req, res, next) => {
 app.get('/', async (req, res) => {
   try {
     // Produk + stok
+    // ======================================================
+    // PRODUK + STOK CABANG + NOMOR DINAMIS
+    // ======================================================
+
     const sqlProduk = `
-      SELECT produk.id, produk.nama, produk.keterangan, produk.gambar,
-             IFNULL(stock.jumlah, 0) AS jumlah_stok
-      FROM produk
-      LEFT JOIN stock ON produk.id = stock.produk_id
-      ORDER BY produk.nama ASC
+
+    SELECT
+
+      p.id,
+      p.nama,
+      p.keterangan,
+      p.gambar,
+      p.kode_produk,
+      p.posisi,
+
+      COALESCE(b.nama, 'Tanpa Brand') AS brand_name,
+
+      COALESCE(jakarta.jumlah, 0) AS stok_jakarta,
+
+      COALESCE(semarang.jumlah, 0) AS stok_semarang,
+
+      (
+        COALESCE(jakarta.jumlah, 0)
+        +
+        COALESCE(semarang.jumlah, 0)
+      ) AS total_stok
+
+    FROM produk p
+
+    LEFT JOIN stock_cabang jakarta
+      ON p.id = jakarta.produk_id
+      AND jakarta.cabang_id = 1
+
+    LEFT JOIN stock_cabang semarang
+      ON p.id = semarang.produk_id
+      AND semarang.cabang_id = 2
+
+    LEFT JOIN brand b
+      ON p.brand_id = b.id
+
+    ORDER BY
+
+    CASE
+      WHEN (
+        COALESCE(jakarta.jumlah,0)
+        +
+        COALESCE(semarang.jumlah,0)
+      ) > 0 THEN 0
+      ELSE 1
+    END,
+
+    CAST(
+      REPLACE(
+        UPPER(p.kode_produk),
+        'P',
+        ''
+      ) AS UNSIGNED
+    ) ASC
+
     `;
+
     const produkRaw = await q(sqlProduk);
-    const produk = produkRaw.map(p => ({ ...p, gambar_list: p.gambar ? p.gambar.split(',') : [] }));
+
+    // ======================================================
+    // BUAT NOMOR PRODUK DINAMIS
+    // ======================================================
+
+    let nomorAktif = 1;
+
+    const produk = produkRaw.map(p => {
+
+      let kodeTampil = 'SOLD';
+
+      if (p.total_stok > 0) {
+
+        kodeTampil = `P${nomorAktif}`;
+
+        nomorAktif++;
+
+      }
+
+      return {
+
+        ...p,
+
+        kode_tampil: kodeTampil,
+
+        gambar_list:
+          p.gambar
+            ? p.gambar.split(',')
+            : []
+
+      };
+
+    });
 
     // Pembelian (riwayat)
     const pembelian = await q('SELECT * FROM pembelian ORDER BY tanggal DESC');
@@ -122,131 +208,593 @@ const listBarangKeluar = Object.values(groupedBK);
 
 
 // ---------- PEMBELIAN PRODUK (create as PENDING) ----------
-app.post('/beli', async (req, res) => {
+// ==========================================
+// HALAMAN FORM PEMBELIAN
+// ==========================================
+app.get('/beli', async (req, res) => {
+
   try {
-    const { customer, produk_id, jumlah, harga_modal, harga, keterangan } = req.body;
 
-    // validasi dasar (keterangan optional)
-    if (!customer || !produk_id || !jumlah || !harga) return res.status(400).send('Form tidak lengkap.');
+    const rows = await q(`
+      SELECT
+        p.*,
 
-    const pid = parseInt(produk_id, 10);
-    const qty = parseInt(jumlah, 10);
-    const hrg = parseInt(harga, 10);
-    if (!Number.isInteger(pid) || !Number.isInteger(qty) || qty <= 0) return res.status(400).send('Data tidak valid.');
+        COALESCE(jakarta.jumlah, 0) AS stok_jakarta,
 
-    const ket = (typeof keterangan === 'string' && keterangan.trim().length > 0) ? keterangan.trim() : null;
+        COALESCE(semarang.jumlah, 0) AS stok_semarang,
 
-    // insert pembelian dengan status = 2 (pending)
-    await q('INSERT INTO pembelian (customer, produk_id, jumlah, harga_modal, harga, keterangan, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [customer.trim(),pid,qty,harga_modal,hrg,ket,2]);
+        (
+          COALESCE(jakarta.jumlah, 0)
+          +
+          COALESCE(semarang.jumlah, 0)
+        ) AS total_stok,
 
-    // jangan update stock sekarang -> stok dikurangi saat marked complete
-    return res.redirect('/');
+        COALESCE(
+          b.nama,
+          'Tanpa Brand'
+        ) AS brand_name
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang jakarta
+        ON p.id = jakarta.produk_id
+        AND jakarta.cabang_id = 1
+
+      LEFT JOIN stock_cabang semarang
+        ON p.id = semarang.produk_id
+        AND semarang.cabang_id = 2
+
+      LEFT JOIN brand b
+        ON p.brand_id = b.id
+
+      ORDER BY
+
+      CASE
+        WHEN (
+          COALESCE(jakarta.jumlah,0)
+          +
+          COALESCE(semarang.jumlah,0)
+        ) > 0 THEN 0
+        ELSE 1
+      END,
+
+      CAST(
+        REPLACE(
+          UPPER(p.kode_produk),
+          'P',
+          ''
+        ) AS UNSIGNED
+      ) ASC
+    `);
+
+    // ======================================
+    // BUAT NOMOR URUT AKTIF
+    // ======================================
+
+    let activeIndex = 1;
+
+    const produk = rows.map(p => {
+
+      const totalStok =
+        Number(p.total_stok || 0);
+
+      // jika stok masih ada
+      if (totalStok > 0) {
+
+        p.nomor_urut = activeIndex;
+
+        p.kode_tampil =
+          'P' + activeIndex;
+
+        activeIndex++;
+
+      } else {
+
+        p.nomor_urut = null;
+
+        p.kode_tampil = 'SOLD';
+
+      }
+
+      return p;
+
+    });
+
+    res.render('beli', {
+      produk
+    });
+
   } catch (err) {
-    console.error('POST /beli error:', err);
-    return res.status(500).send('Gagal memproses pembelian.');
+
+    console.error(
+      'GET /beli ERROR:',
+      err
+    );
+
+    res.status(500).send(
+      'Server Error'
+    );
+
   }
+
 });
 
-// Toggle pembelian complete <-> pending, adjust stock accordingly
-app.post('/pembelian/toggle/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).json({ ok: false, error: 'ID tidak valid' });
+// ==========================================
+// PROSES PEMBELIAN
+// ==========================================
 
-    // ambil pembelian
-    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
-    if (!rows || rows.length === 0) return res.status(404).json({ ok: false, error: 'Pembelian tidak ditemukan' });
+app.post('/beli', async (req, res) => {
+
+  try {
+
+    const {
+
+      customer,
+      produk_id,
+      jumlah,
+      harga,
+      harga_modal,
+      keterangan,
+      cabang_id
+
+    } = req.body;
+
+    // ==============================
+    // VALIDASI
+    // ==============================
+
+    if (
+      !customer ||
+      !produk_id ||
+      !jumlah ||
+      !harga ||
+      !cabang_id
+    ) {
+
+      return res.status(400).send(
+        'Data pembelian tidak lengkap.'
+      );
+
+    }
+
+    const pid =
+      parseInt(produk_id);
+
+    const qty =
+      parseInt(jumlah);
+
+    const cid =
+      parseInt(cabang_id);
+
+    // ==============================
+    // CEK STOK CABANG
+    // ==============================
+
+    const stockRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = ?
+      LIMIT 1
+    `, [
+      pid,
+      cid
+    ]);
+
+    const currentStock =
+      stockRows.length
+        ? parseInt(stockRows[0].jumlah)
+        : 0;
+
+    if (currentStock < qty) {
+
+      return res.status(400).send(
+        `Stok tidak cukup. Sisa ${currentStock}`
+      );
+
+    }
+
+    // ==============================
+    // INSERT PEMBELIAN
+    // status 2 = pending
+    // ==============================
+
+    await q(`
+      INSERT INTO pembelian
+      (
+        customer,
+        produk_id,
+        jumlah,
+        harga,
+        harga_modal,
+        keterangan,
+        cabang_id,
+        status,
+        tanggal
+      )
+      VALUES
+      (
+        ?, ?, ?, ?, ?, ?, ?, 2, NOW()
+      )
+    `, [
+
+      customer,
+      pid,
+      qty,
+      harga,
+      harga_modal || 0,
+      keterangan || '',
+      cid
+
+    ]);
+
+    return res.redirect('/');
+
+  } catch (err) {
+
+    console.error(
+      'POST /beli ERROR:',
+      err
+    );
+
+    return res.status(500).send(
+      'Gagal memproses pembelian.'
+    );
+
+  }
+
+});
+
+// ==========================================
+// TOGGLE PEMBELIAN
+// pending <-> selesai
+// ==========================================
+
+app.post('/pembelian/toggle/:id', async (req, res) => {
+
+  try {
+
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+
+      return res.status(400).json({
+        ok: false,
+        error: 'ID tidak valid'
+      });
+
+    }
+
+    // ======================================
+    // AMBIL DATA PEMBELIAN
+    // ======================================
+
+    const rows = await q(`
+      SELECT *
+      FROM pembelian
+      WHERE id = ?
+      LIMIT 1
+    `, [id]);
+
+    if (!rows.length) {
+
+      return res.status(404).json({
+        ok: false,
+        error: 'Pembelian tidak ditemukan'
+      });
+
+    }
+
     const beli = rows[0];
 
-    // produk & jumlah
-    const pid = parseInt(beli.produk_id, 10);
-    const qty = parseInt(beli.jumlah, 10) || 0;
+    const pid =
+      parseInt(beli.produk_id);
+
+    const qty =
+      parseInt(beli.jumlah) || 0;
+
+    // CABANG YANG DIPAKAI
+    const cabangId =
+      parseInt(beli.cabang_id);
 
     await beginTransaction();
 
-    let newStatus;
+    let newStatus = 2;
 
-    if (beli.status === 2 || beli.status == '2') {
-      // pending -> selesai : kurangi stock
-      // pastikan ada row stock dan cukup
-      const stockRows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
-      const curStock = (stockRows && stockRows.length) ? parseInt(stockRows[0].jumlah, 10) : 0;
+    // ======================================
+    // PENDING -> SELESAI
+    // KURANGI STOK
+    // ======================================
+
+    if (beli.status == 2) {
+
+      const stockRows = await q(`
+        SELECT jumlah
+        FROM stock_cabang
+        WHERE produk_id = ?
+        AND cabang_id = ?
+        LIMIT 1
+      `, [
+        pid,
+        cabangId
+      ]);
+
+      const curStock =
+        stockRows.length
+          ? parseInt(stockRows[0].jumlah)
+          : 0;
+
+      // cek stok cukup
       if (curStock < qty) {
+
         await rollback();
-        return res.status(400).json({ ok: false, error: `Stok tidak cukup (tersisa ${curStock}).` });
+
+        return res.status(400).json({
+          ok: false,
+          error: `Stok tidak cukup. Sisa ${curStock}`
+        });
+
       }
 
-      // update stock secara atomic
-      const upd = await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ? AND jumlah >= ?', [qty, pid, qty]);
-      if (!upd || upd.affectedRows === 0) {
-        await rollback();
-        return res.status(500).json({ ok: false, error: 'Gagal mengurangi stok (konkursi).' });
-      }
+      // kurangi stok cabang
+      await q(`
+        UPDATE stock_cabang
+        SET jumlah = jumlah - ?
+        WHERE produk_id = ?
+        AND cabang_id = ?
+      `, [
+        qty,
+        pid,
+        cabangId
+      ]);
 
-      // update status pembelian -> 1
-      await q('UPDATE pembelian SET status = 1 WHERE id = ?', [id]);
+      // ubah status selesai
+      await q(`
+        UPDATE pembelian
+        SET status = 1
+        WHERE id = ?
+      `, [id]);
+
       newStatus = 1;
-    } else {
-      // jika sudah selesai -> ubah balik ke pending dan RESTORE stok
-      // tambahkan kembali stok
-      await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)', [pid, qty]);
-      await q('UPDATE pembelian SET status = 2 WHERE id = ?', [id]);
+
+    }
+
+    // ======================================
+    // SELESAI -> PENDING
+    // KEMBALIKAN STOK
+    // ======================================
+
+    else {
+
+      await q(`
+        INSERT INTO stock_cabang
+        (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+        VALUES (?, ?, ?)
+
+        ON DUPLICATE KEY UPDATE
+
+        jumlah = jumlah + VALUES(jumlah)
+      `, [
+        pid,
+        cabangId,
+        qty
+      ]);
+
+      // ubah status pending
+      await q(`
+        UPDATE pembelian
+        SET status = 2
+        WHERE id = ?
+      `, [id]);
+
       newStatus = 2;
+
     }
 
     await commit();
 
-    // ambil stok terbaru
-    const afterStockRows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
-    const newStock = (afterStockRows && afterStockRows.length) ? afterStockRows[0].jumlah : 0;
+    // ======================================
+    // AMBIL STOK TERBARU
+    // ======================================
 
-    return res.json({ ok: true, status: newStatus, stock: newStock, pembelian_id: id, produk_id: pid, jumlah: qty });
+    const latestRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = ?
+      LIMIT 1
+    `, [
+      pid,
+      cabangId
+    ]);
+
+    const finalStock =
+      latestRows.length
+        ? latestRows[0].jumlah
+        : 0;
+
+    return res.json({
+
+      ok: true,
+
+      status: newStatus,
+
+      stock: finalStock,
+
+      produk_id: pid,
+
+      cabang_id: cabangId
+
+    });
+
   } catch (err) {
-    console.error('POST /pembelian/toggle/:id error:', err);
-    try { await rollback(); } catch(_) {}
-    return res.status(500).json({ ok: false, error: 'Server error saat toggle pembelian.' });
+
+    console.error(
+      'POST /pembelian/toggle/:id error:',
+      err
+    );
+
+    try {
+
+      await rollback();
+
+    } catch (_) {}
+
+    return res.status(500).json({
+
+      ok: false,
+
+      error: 'Server error saat toggle pembelian.'
+
+    });
+
   }
+
 });
 
-// ---------- MARK PEMBELIAN SELESAI (complete) ----------
-app.post('/pembelian/complete/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).send('ID tidak valid.');
+// ==========================================
+// COMPLETE PEMBELIAN
+// ==========================================
 
-    // ambil pembelian
-    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
-    if (!rows || rows.length === 0) return res.status(404).send('Pembelian tidak ditemukan.');
+app.post('/pembelian/complete/:id', async (req, res) => {
+
+  try {
+
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+
+      return res.status(400).send(
+        'ID tidak valid.'
+      );
+
+    }
+
+    // ======================================
+    // AMBIL DATA PEMBELIAN
+    // ======================================
+
+    const rows = await q(`
+      SELECT *
+      FROM pembelian
+      WHERE id = ?
+      LIMIT 1
+    `, [id]);
+
+    if (!rows.length) {
+
+      return res.status(404).send(
+        'Pembelian tidak ditemukan.'
+      );
+
+    }
 
     const pb = rows[0];
-    if (pb.status === 1) return res.redirect('/'); // sudah selesai
 
-    const pid = pb.produk_id;
-    const qty = pb.jumlah;
+    // jika sudah selesai
+    if (pb.status == 1) {
+
+      return res.json({
+        ok: true
+      });
+
+    }
+
+    const pid =
+      parseInt(pb.produk_id);
+
+    const qty =
+      parseInt(pb.jumlah);
+
+    const cabangId =
+      parseInt(pb.cabang_id);
 
     await beginTransaction();
 
-    // cek stok
-    const srows = await q('SELECT jumlah FROM stock WHERE produk_id = ? LIMIT 1', [pid]);
-    const cur = (srows && srows.length > 0) ? srows[0].jumlah : 0;
-    if (cur < qty) {
+    // ======================================
+    // CEK STOK CABANG
+    // ======================================
+
+    const stockRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = ?
+      LIMIT 1
+    `, [
+      pid,
+      cabangId
+    ]);
+
+    const currentStock =
+      stockRows.length
+        ? parseInt(stockRows[0].jumlah)
+        : 0;
+
+    if (currentStock < qty) {
+
       await rollback();
-      return res.status(400).send(`Stok tidak cukup (tersisa ${cur}) untuk menyelesaikan pembelian ini.`);
+
+      return res.status(400).send(
+        `Stok tidak cukup. Sisa ${currentStock}`
+      );
+
     }
 
-    // kurangi stock
-    await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [qty, pid]);
+    // ======================================
+    // KURANGI STOK CABANG
+    // ======================================
 
-    // set status = 1 (selesai)
-    await q('UPDATE pembelian SET status = ? WHERE id = ?', [1, id]);
+    await q(`
+      UPDATE stock_cabang
+      SET jumlah = jumlah - ?
+      WHERE produk_id = ?
+      AND cabang_id = ?
+    `, [
+      qty,
+      pid,
+      cabangId
+    ]);
+
+    // ======================================
+    // UPDATE STATUS
+    // ======================================
+
+    await q(`
+      UPDATE pembelian
+      SET status = 1
+      WHERE id = ?
+    `, [id]);
 
     await commit();
-    return res.json({ ok: true });
+
+    return res.json({
+      ok: true
+    });
+
   } catch (err) {
-    console.error('POST /pembelian/complete/:id error:', err);
-    try { await rollback(); } catch(_) {}
-    return res.status(500).send('Gagal menyelesaikan pembelian.');
+
+    console.error(
+      'POST /pembelian/complete/:id error:',
+      err
+    );
+
+    try {
+
+      await rollback();
+
+    } catch (_) {}
+
+    return res.status(500).send(
+      'Gagal menyelesaikan pembelian.'
+    );
+
   }
+
 });
 
 // ---------- CANCEL PEMBELIAN ----------
@@ -263,7 +811,7 @@ app.post('/cancel/:id', async (req, res) => {
     await beginTransaction();
     if (pembelian.status === 1) {
       // already completed -> restore stock
-      await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id]);
+      await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id]);
     }
     // delete pembelian
     await q('DELETE FROM pembelian WHERE id = ?', [id]);
@@ -300,10 +848,13 @@ const upload = multer({ storage });
 // ========== EXPORT PDF PEMBELIAN ==========
 app.get('/export/pembelian/pdf', async (req, res) => {
   try {
+
     const { start, end } = req.query;
 
     if (!start || !end) {
-      return res.status(400).send('Parameter tanggal wajib.');
+      return res
+        .status(400)
+        .send('Parameter tanggal wajib.');
     }
 
     const sql = `
@@ -334,8 +885,14 @@ app.get('/export/pembelian/pdf', async (req, res) => {
       layout: 'landscape'
     });
 
+    // =============================
     // HEADER RESPONSE
-    res.setHeader('Content-Type', 'application/pdf');
+    // =============================
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
     res.setHeader(
       'Content-Disposition',
       `inline; filename="laporan-pembelian-${start}-${end}.pdf"`
@@ -349,22 +906,22 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     const pageWidth = doc.page.width;
     const margin = 30;
 
-    let y = 90;
+    let y = 120;
 
     // Lebar kolom
     const col = {
-  no: 25,
-  customer: 70,
-  produk: 170,
-  jumlah: 35,
-  modal: 85,
-  harga: 85,
-  total: 90,
-  profit: 90,
-  status: 60,
-  ket: 90,
-  tanggal: 95
-};
+      no: 30,
+      customer: 50,
+      produk: 220,
+      jumlah: 20,
+      modal: 80,
+      harga: 80,
+      // total: 85,
+      profit: 75,
+      status: 50,
+      ket: 60,
+      tanggal: 105
+    };
 
     // =============================
     // TITLE
@@ -381,9 +938,12 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     doc
       .fontSize(10)
       .font('Helvetica')
-      .text(`Periode: ${start} s/d ${end}`, {
-        align: 'center'
-      });
+      .text(
+        `Periode: ${start} s/d ${end}`,
+        {
+          align: 'center'
+        }
+      );
 
     y = 100;
 
@@ -392,91 +952,53 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     // =============================
     function drawTableHeader() {
 
-      doc.rect(margin, y, pageWidth - margin * 2, 25)
+      doc
+        .rect(
+          margin,
+          y,
+          pageWidth - (margin * 2),
+          28
+        )
         .fill('#eeeeee');
 
-      doc.fillColor('black')
+      doc
+        .fillColor('black')
         .fontSize(10)
         .font('Helvetica-Bold');
 
       let x = margin;
 
-      doc.text('No', x, y + 7, {
-        width: col.no,
-        align: 'center'
+      const headers = [
+        ['No', col.no],
+        ['Seller', col.customer],
+        ['Produk', col.produk],
+        ['Qty', col.jumlah],
+        ['Modal', col.modal],
+        ['Harga', col.harga],
+        // ['Total', col.total],
+        ['Profit', col.profit],
+        ['Status', col.status],
+        ['Keterangan', col.ket],
+        ['Tanggal', col.tanggal]
+      ];
+
+      headers.forEach(([label, width]) => {
+
+        doc.text(
+          label,
+          x,
+          y + 8,
+          {
+            width,
+            align: 'center'
+          }
+        );
+
+        x += width;
+
       });
 
-      x += col.no;
-
-      doc.text('Seller', x, y + 7, {
-        width: col.customer,
-        align: 'center'
-      });
-
-      x += col.customer;
-
-      doc.text('Produk', x, y + 7, {
-        width: col.produk,
-        align: 'center'
-      });
-
-      x += col.produk;
-
-      doc.text('Qty', x, y + 7, {
-        width: col.jumlah,
-        align: 'center'
-      });
-
-      x += col.jumlah;
-
-      doc.text('Modal', x, y + 7, {
-        width: col.modal,
-        align: 'center'
-      });
-
-      x += col.modal;
-
-      doc.text('Harga', x, y + 7, {
-        width: col.harga,
-        align: 'center'
-      });
-
-      x += col.harga;
-
-      doc.text('Total', x, y + 7, {
-        width: col.total,
-        align: 'center'
-      });
-
-      x += col.total;
-
-      doc.text('Profit', x, y + 7, {
-        width: col.profit,
-        align: 'center'
-      });
-
-      x += col.profit;
-
-      doc.text('Status', x, y + 7, {
-        width: col.status,
-        align: 'center'
-      });
-
-      x += col.status;
-
-      doc.text('Keterangan', x, y + 7, {
-        width: col.ket,
-        align: 'center'
-      });
-
-      x += col.ket;
-
-      doc.text('Tanggal', x, y + 7, {
-        width: col.tanggal,
-        align: 'center'
-      });
-
-      y += 25;
+      y += 28;
     }
 
     drawTableHeader();
@@ -486,183 +1008,299 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     // =============================
     if (!rows.length) {
 
-      doc.font('Helvetica')
+      doc
+        .font('Helvetica')
         .fontSize(11)
-        .text('Tidak ada data.', margin, y + 20);
+        .text(
+          'Tidak ada data.',
+          margin,
+          y + 20
+        );
 
       doc.end();
       return;
     }
 
+    // =============================
+    // FORMAT RUPIAH
+    // =============================
     function rupiah(angka) {
-      return 'Rp ' + Number(angka || 0).toLocaleString('id-ID');
+
+      return 'Rp ' +
+        Number(angka || 0)
+          .toLocaleString('id-ID');
     }
 
     let grandTotal = 0;
     let grandProfit = 0;
+
     // =============================
     // LOOP DATA
     // =============================
     rows.forEach((r, index) => {
 
-  // PAGE BREAK
-  if (y > 500) {
-    doc.addPage({
-      layout: 'landscape'
+      // PAGE BREAK
+      if (y > 500) {
+
+        doc.addPage({
+          layout: 'landscape'
+        });
+
+        y = 40;
+
+        drawTableHeader();
+      }
+
+      const status =
+        Number(r.status) === 1
+          ? 'Selesai'
+          : 'Pending';
+
+      const tanggal =
+        r.tanggal
+          ? new Date(r.tanggal)
+              .toLocaleString('id-ID')
+          : '-';
+
+      // =============================
+      // HITUNG
+      // =============================
+      const hargaModal =
+        Number(r.harga_modal || 0);
+
+      const hargaJual =
+        Number(r.harga || 0);
+
+      const qty =
+        Number(r.jumlah || 0);
+
+      const totalHarga =
+        hargaJual * qty;
+
+      const keuntungan =
+        totalHarga - (hargaModal * qty);
+
+      grandTotal += totalHarga;
+      grandProfit += keuntungan;
+
+      // =============================
+      // TINGGI ROW
+      // =============================
+      const rowHeight = 55;
+      const textY = y + 18;
+
+      // BORDER
+      doc
+        .rect(
+          margin,
+          y,
+          pageWidth - (margin * 2),
+          rowHeight
+        )
+        .stroke('#cccccc');
+
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .fillColor('black');
+
+      let x = margin;
+
+      // =============================
+      // NO
+      // =============================
+      doc.text(
+        String(index + 1),
+        x,
+        textY,
+        {
+          width: col.no,
+          align: 'center'
+        }
+      );
+
+      x += col.no;
+
+      // =============================
+      // SELLER
+      // =============================
+      doc.text(
+        r.customer || '-',
+        x,
+        textY,
+        {
+          width: col.customer,
+          align: 'center'
+        }
+      );
+
+      x += col.customer;
+
+      // =============================
+      // PRODUK
+      // =============================
+      const produkNama =
+        (r.produk_nama || '-')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      doc.text(
+        produkNama,
+        x + 5,
+        y + 10,
+        {
+          width: col.produk - 10,
+          height: 35,
+          align: 'center',
+          ellipsis: true,
+          lineBreak: true
+        }
+      );
+
+      x += col.produk;
+
+      // =============================
+      // QTY
+      // =============================
+      doc.text(
+        String(qty),
+        x,
+        textY,
+        {
+          width: col.jumlah,
+          align: 'center'
+        }
+      );
+
+      x += col.jumlah;
+
+      // =============================
+      // MODAL
+      // =============================
+      doc.text(
+        rupiah(hargaModal),
+        x,
+        textY,
+        {
+          width: col.modal,
+          align: 'center'
+        }
+      );
+
+      x += col.modal;
+
+      // =============================
+      // HARGA
+      // =============================
+      doc.text(
+        rupiah(hargaJual),
+        x,
+        textY,
+        {
+          width: col.harga,
+          align: 'center'
+        }
+      );
+
+      x += col.harga;
+
+      // // =============================
+      // // TOTAL
+      // // =============================
+      // doc.text(
+      //   rupiah(totalHarga),
+      //   x,
+      //   textY,
+      //   {
+      //     width: col.total,
+      //     align: 'center'
+      //   }
+      // );
+
+      // x += col.total;
+
+      // =============================
+      // PROFIT
+      // =============================
+      doc.fillColor(
+        keuntungan >= 0
+          ? 'green'
+          : 'red'
+      );
+
+      doc.text(
+        rupiah(keuntungan),
+        x,
+        textY,
+        {
+          width: col.profit,
+          align: 'center'
+        }
+      );
+
+      x += col.profit;
+
+      // =============================
+      // STATUS
+      // =============================
+      doc.fillColor(
+        status === 'Selesai'
+          ? 'green'
+          : 'red'
+      );
+
+      doc.text(
+        status,
+        x,
+        textY,
+        {
+          width: col.status,
+          align: 'center'
+        }
+      );
+
+      x += col.status;
+
+      // =============================
+      // KETERANGAN
+      // =============================
+      doc.fillColor('black');
+
+      doc.text(
+        r.keterangan || '-',
+        x,
+        textY,
+        {
+          width: col.ket,
+          align: 'center'
+        }
+      );
+
+      x += col.ket;
+
+      // =============================
+      // TANGGAL
+      // =============================
+      doc.text(
+        tanggal,
+        x,
+        textY,
+        {
+          width: col.tanggal,
+          align: 'center'
+        }
+      );
+
+      y += rowHeight;
     });
 
-    y = 40;
-    drawTableHeader();
-  }
-
-  const status =
-    Number(r.status) === 1
-      ? 'Selesai'
-      : 'Pending';
-
-  const tanggal = r.tanggal
-    ? new Date(r.tanggal).toLocaleString('id-ID')
-    : '-';
-
-  // =========================
-  // PERHITUNGAN
-  // =========================
-  const hargaModal = Number(r.harga_modal || 0);
-  const hargaJual = Number(r.harga || 0);
-  const qty = Number(r.jumlah || 0);
-
-  const totalModal = hargaModal * qty;
-  const totalHarga = hargaJual * qty;
-  const keuntungan = totalHarga - totalModal;
-
-  grandTotal += totalHarga;
-  grandProfit += keuntungan;
-
-  // =========================
-  // TINGGI ROW
-  // =========================
-  const rowHeight = 55;
-
-  // BORDER ROW
-  doc.rect(
-    margin,
-    y,
-    pageWidth - margin * 2,
-    rowHeight
-  ).stroke('#cccccc');
-
-  doc.font('Helvetica')
-    .fontSize(9)
-    .fillColor('black');
-
-  let x = margin;
-
-  // NO
-  doc.text(String(index + 1), x, y + 10, {
-    width: col.no,
-    align: 'center'
-  });
-
-  x += col.no;
-
-  // SELLER
-  doc.text(r.customer || '-', x + 3, y + 10, {
-    width: col.customer,
-    align: 'left'
-  });
-
-  x += col.customer;
-
-  // PRODUK
-  doc.text(r.produk_nama || '-', x + 3, y + 8, {
-    width: col.produk - 5,
-    align: 'left'
-  });
-
-  x += col.produk;
-
-  // QTY
-  doc.text(String(qty), x, y + 10, {
-    width: col.jumlah,
-    align: 'center'
-  });
-
-  x += col.jumlah;
-
-  // MODAL
-  doc.text(rupiah(hargaModal), x, y + 10, {
-    width: col.modal,
-    align: 'right'
-  });
-
-  x += col.modal;
-
-  // HARGA
-  doc.text(rupiah(hargaJual), x, y + 10, {
-    width: col.harga,
-    align: 'right'
-  });
-
-  x += col.harga;
-
-  // TOTAL
-  doc.text(rupiah(totalHarga), x, y + 10, {
-    width: col.total,
-    align: 'right'
-  });
-
-  x += col.total;
-
-  // PROFIT
-  doc.fillColor(
-    keuntungan >= 0 ? 'green' : 'red'
-  );
-
-  doc.text(rupiah(keuntungan), x, y + 10, {
-    width: col.profit,
-    align: 'right'
-  });
-
-  x += col.profit + 10;
-
-  // STATUS
-  doc.fillColor(
-    status === 'Selesai'
-      ? 'green'
-      : 'red'
-  );
-
-  doc.text(status, x, y + 10, {
-    width: col.status,
-    align: 'center'
-  });
-
-  x += col.status + 12;
-
-  // KETERANGAN
-  doc.fillColor('black');
-
-  doc.text(r.keterangan || '-', x, y + 10, {
-    width: col.ket,
-    align: 'left'
-  });
-
-  x += col.ket + 5;
-
-  // TANGGAL
-  doc.text(tanggal, x, y + 10, {
-    width: col.tanggal,
-    align: 'center'
-  });
-
-  y += rowHeight;
-});
     // =============================
     // FOOTER
     // =============================
     y += 20;
 
-    doc.font('Helvetica-Bold')
+    doc
+      .font('Helvetica-Bold')
       .fontSize(11)
       .fillColor('black')
       .text(
@@ -673,9 +1311,11 @@ app.get('/export/pembelian/pdf', async (req, res) => {
           align: 'right'
         }
       );
-      y += 18;
 
-    doc.font('Helvetica-Bold')
+    y += 18;
+
+    doc
+      .font('Helvetica-Bold')
       .fontSize(11)
       .fillColor('green')
       .text(
@@ -687,14 +1327,15 @@ app.get('/export/pembelian/pdf', async (req, res) => {
         }
       );
 
-    doc.moveDown(2);
+    y += 20;
 
-    doc.fontSize(8)
+    doc
+      .fontSize(8)
       .fillColor('gray')
       .text(
         `Generated: ${new Date().toLocaleString('id-ID')}`,
         margin,
-        y + 20,
+        y,
         {
           align: 'right'
         }
@@ -704,10 +1345,16 @@ app.get('/export/pembelian/pdf', async (req, res) => {
 
   } catch (err) {
 
-    console.error('EXPORT PDF ERROR:', err);
+    console.error(
+      'EXPORT PDF ERROR:',
+      err
+    );
 
     if (!res.headersSent) {
-      res.status(500).send('Gagal generate PDF');
+
+      res
+        .status(500)
+        .send('Gagal generate PDF');
     }
   }
 });
@@ -1103,7 +1750,7 @@ app.post(
 
         // stok otomatis
         await q(`
-          INSERT INTO stock
+          INSERT INTO stock_cabang
           (
             produk_id,
             jumlah
@@ -1754,58 +2401,168 @@ app.get('/produk/:id', async (req, res) => {
 
 });
 
-// ==== GET /produk/:id/edit (robust terhadap brand.name vs brand.nama) ====
+// ======================================================
+// GET EDIT PRODUK
+// ======================================================
+
 app.get('/produk/:id/edit', async (req, res) => {
+
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(404).send('Produk tidak ditemukan.');
 
-    const pRows = await q('SELECT * FROM produk WHERE id = ? LIMIT 1', [id]);
-    if (!pRows || pRows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
+    const id = parseInt(req.params.id);
 
-    // ambil brands dengan deteksi kolom (name atau nama)
-    let brands = [];
-    try {
-      // cek apakah tabel brand ada
-      const tbl = await q("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'brand'");
-      const brandTableExists = tbl && tbl.length && tbl[0].cnt > 0;
-      if (brandTableExists) {
-        let brandColumn = null;
-        if (await columnExists('brand', 'name')) brandColumn = 'name';
-        else if (await columnExists('brand', 'nama')) brandColumn = 'nama';
+    if (!id) {
 
-        if (brandColumn) {
-          brands = await q(`SELECT id, ${brandColumn} AS name FROM brand ORDER BY ${brandColumn} ASC`);
-        } else {
-          // brand table exists but kolom tidak standar -> ambil semua kolom dan coba pilih satu
-          const raw = await q('SELECT * FROM brand LIMIT 1');
-          if (raw && raw.length > 0) {
-            // pilih kolom kedua yang bukan id sebagai label (fallback)
-            const keys = Object.keys(raw[0]).filter(k => k !== 'id');
-            if (keys.length > 0) {
-              const col = keys[0];
-              brands = await q(`SELECT id, ${col} AS name FROM brand ORDER BY ${col} ASC`);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Warn: gagal ambil brands (jalan fallback):', e && e.message);
-      brands = [];
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
+
+    }
+
+    // ======================================================
+    // AMBIL PRODUK
+    // ======================================================
+
+    const pRows = await q(`
+      SELECT *
+      FROM produk
+      WHERE id = ?
+      LIMIT 1
+    `, [id]);
+
+    if (!pRows.length) {
+
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
+
     }
 
     const p = pRows[0];
-    p.gambar_list = p.gambar ? p.gambar.split(',') : [];
 
-    // ambil stok
-    const s = await q('SELECT jumlah FROM stock_cabang WHERE produk_id = ? LIMIT 1', [id]);
-    const stok = (s && s.length > 0) ? s[0].jumlah : 0;
+    p.gambar_list =
+      p.gambar
+        ? p.gambar.split(',')
+        : [];
 
-    res.render('produk_edit', { p, brands, stok });
+    // ======================================================
+    // AMBIL BRAND
+    // ======================================================
+
+    let brands = [];
+
+    try {
+
+      const tbl = await q(`
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+        AND table_name = 'brand'
+      `);
+
+      const brandTableExists =
+        tbl[0].cnt > 0;
+
+      if (brandTableExists) {
+
+        let brandColumn = null;
+
+        if (await columnExists('brand', 'name')) {
+
+          brandColumn = 'name';
+
+        } else if (
+          await columnExists('brand', 'nama')
+        ) {
+
+          brandColumn = 'nama';
+
+        }
+
+        if (brandColumn) {
+
+          brands = await q(`
+            SELECT
+              id,
+              ${brandColumn} AS name
+            FROM brand
+            ORDER BY ${brandColumn} ASC
+          `);
+
+        }
+
+      }
+
+    } catch (e) {
+
+      console.warn(
+        'Gagal mengambil brand:',
+        e.message
+      );
+
+    }
+
+    // ======================================================
+    // AMBIL STOK JAKARTA
+    // ======================================================
+
+    const jakartaRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = 1
+      LIMIT 1
+    `, [id]);
+
+    // ======================================================
+    // AMBIL STOK SEMARANG
+    // ======================================================
+
+    const semarangRows = await q(`
+      SELECT jumlah
+      FROM stock_cabang
+      WHERE produk_id = ?
+      AND cabang_id = 2
+      LIMIT 1
+    `, [id]);
+
+    const stok_jakarta =
+      jakartaRows.length > 0
+        ? jakartaRows[0].jumlah
+        : 0;
+
+    const stok_semarang =
+      semarangRows.length > 0
+        ? semarangRows[0].jumlah
+        : 0;
+
+    // ======================================================
+    // RENDER
+    // ======================================================
+
+    res.render('produk_edit', {
+
+      p,
+      brands,
+
+      stok_jakarta,
+      stok_semarang
+
+    });
+
   } catch (err) {
-    console.error('GET /produk/:id/edit error:', err);
-    res.status(500).send('Server error.');
+
+    console.error(
+      'GET /produk/:id/edit error:',
+      err
+    );
+
+    res
+      .status(500)
+      .send('Server error.');
+
   }
+
 });
 
 // ==== HAPUS GAMBAR PRODUK ====
@@ -1884,149 +2641,549 @@ app.post('/produk/:id/delete', async (req, res) => {
  * Jika stok_adjust diberikan, jumlah di table stock akan diubah (+/-).
  */
 // ==== POST /produk/:id (update produk) ====
-app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(404).send('Produk tidak ditemukan.');
+// ======================================================
+// UPDATE PRODUK
+// ======================================================
 
-    const nama = (req.body.nama || '').trim();
-    const kode_produk = req.body.kode_produk ? req.body.kode_produk.trim().toUpperCase() : null;
-    const keterangan = req.body.keterangan ? req.body.keterangan.trim() : null;
-    const brand_id = req.body.brand_id ? (parseInt(req.body.brand_id,10) || null) : null;
-    const posisi = req.body.posisi ? (req.body.posisi.trim() || null) : null;
-    const stokChange = req.body.stok_change ? parseInt(req.body.stok_change, 10) : 0;
+app.post(
+  '/produk/:id',
+  upload.array('gambar', 6),
 
-    if (!nama) return res.status(400).send('Nama produk wajib diisi.');
+  async (req, res) => {
 
-    // ambil current produk
-    const curRows = await q('SELECT gambar FROM produk WHERE id = ? LIMIT 1', [id]);
-    if (!curRows || curRows.length === 0) return res.status(404).send('Produk tidak ditemukan.');
+    try {
 
-    let currentGambar = curRows[0].gambar || '';
-    // jika ada upload baru, gabungkan
-    if (req.files && req.files.length > 0) {
-      const newFiles = req.files.map(f => f.filename).join(',');
-      currentGambar = currentGambar ? (currentGambar + ',' + newFiles) : newFiles;
+      const id = parseInt(
+        req.params.id,
+        10
+      );
+
+      if (!id) {
+
+        return res
+          .status(404)
+          .send('Produk tidak ditemukan.');
+
+      }
+
+      // ======================================================
+      // FORM DATA
+      // ======================================================
+
+      const nama =
+        (req.body.nama || '').trim();
+
+      const kode_produk =
+        req.body.kode_produk
+          ? req.body.kode_produk
+              .trim()
+              .toUpperCase()
+          : null;
+
+      const keterangan =
+        req.body.keterangan
+          ? req.body.keterangan.trim()
+          : null;
+
+      const brand_id =
+        req.body.brand_id
+          ? (
+              parseInt(
+                req.body.brand_id,
+                10
+              ) || null
+            )
+          : null;
+
+      const posisi =
+        req.body.posisi
+          ? (
+              req.body.posisi.trim()
+              || null
+            )
+          : null;
+
+      // ======================================================
+      // STOK CABANG
+      // ======================================================
+
+      const stok_jakarta =
+        parseInt(
+          req.body.stok_jakarta
+        ) || 0;
+
+      const stok_semarang =
+        parseInt(
+          req.body.stok_semarang
+        ) || 0;
+
+      if (!nama) {
+
+        return res
+          .status(400)
+          .send(
+            'Nama produk wajib diisi.'
+          );
+
+      }
+
+      // ======================================================
+      // AMBIL GAMBAR LAMA
+      // ======================================================
+
+      const curRows = await q(`
+        SELECT gambar
+        FROM produk
+        WHERE id = ?
+        LIMIT 1
+      `, [id]);
+
+      if (!curRows.length) {
+
+        return res
+          .status(404)
+          .send('Produk tidak ditemukan.');
+
+      }
+
+      let currentGambar =
+        curRows[0].gambar || '';
+
+      // ======================================================
+      // JIKA ADA UPLOAD GAMBAR BARU
+      // ======================================================
+
+      if (
+        req.files &&
+        req.files.length > 0
+      ) {
+
+        const newFiles =
+          req.files
+            .map(f => f.filename)
+            .join(',');
+
+        currentGambar =
+          currentGambar
+            ? (
+                currentGambar
+                +
+                ','
+                +
+                newFiles
+              )
+            : newFiles;
+
+      }
+
+      // ======================================================
+      // UPDATE PRODUK
+      // ======================================================
+
+      await q(`
+        UPDATE produk
+        SET
+
+          nama = ?,
+          kode_produk = ?,
+          keterangan = ?,
+          gambar = ?,
+          brand_id = ?,
+          posisi = ?
+
+        WHERE id = ?
+      `, [
+
+        nama,
+        kode_produk,
+        keterangan,
+        currentGambar,
+        brand_id,
+        posisi,
+        id
+
+      ]);
+
+      // ======================================================
+      // UPDATE STOK JAKARTA
+      // cabang_id = 1
+      // ======================================================
+
+      await q(`
+        INSERT INTO stock_cabang
+        (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+
+        VALUES (?, 1, ?)
+
+        ON DUPLICATE KEY UPDATE
+
+        jumlah = VALUES(jumlah)
+      `, [
+
+        id,
+        stok_jakarta
+
+      ]);
+
+      // ======================================================
+      // UPDATE STOK SEMARANG
+      // cabang_id = 2
+      // ======================================================
+
+      await q(`
+        INSERT INTO stock_cabang
+        (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+
+        VALUES (?, 2, ?)
+
+        ON DUPLICATE KEY UPDATE
+
+        jumlah = VALUES(jumlah)
+      `, [
+
+        id,
+        stok_semarang
+
+      ]);
+
+      // ======================================================
+      // REDIRECT
+      // ======================================================
+
+      return res.redirect(
+        '/produk/' + id
+      );
+
+    } catch (err) {
+
+      console.error(
+        'POST /produk/:id error:',
+        err
+      );
+
+      return res
+        .status(500)
+        .send(
+          'Gagal memperbarui produk.'
+        );
+
     }
 
-    // update produk
-    await q(
-      'UPDATE produk SET nama = ?, kode_produk = ?, keterangan = ?, gambar = ?, brand_id = ?, posisi = ? WHERE id = ?',
-      [nama, kode_produk, keterangan, currentGambar, brand_id, posisi, id]
+  }
+);
+
+// ======================================================
+// EXPORT PDF PRODUK
+// ======================================================
+app.get("/export/produk/pdf", async (req, res) => {
+
+  try {
+
+    const brandId = req.query.brand_id || null;
+
+    // ======================================================
+    // QUERY PRODUK + STOK CABANG
+    // ======================================================
+    let sql = `
+      SELECT 
+        p.*,
+
+        COALESCE(jakarta.jumlah, 0) AS stok_jakarta,
+
+        COALESCE(semarang.jumlah, 0) AS stok_semarang,
+
+        (
+          COALESCE(jakarta.jumlah, 0)
+          +
+          COALESCE(semarang.jumlah, 0)
+        ) AS total_stok,
+
+        COALESCE(
+          b.nama,
+          'Tanpa Brand'
+        ) AS brand_name
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang jakarta
+        ON p.id = jakarta.produk_id
+        AND jakarta.cabang_id = 1
+
+      LEFT JOIN stock_cabang semarang
+        ON p.id = semarang.produk_id
+        AND semarang.cabang_id = 2
+
+      LEFT JOIN brand b
+        ON p.brand_id = b.id
+    `;
+
+    // ======================================================
+    // FILTER BRAND
+    // ======================================================
+    if (brandId) {
+
+      sql += `
+        WHERE p.brand_id = ${parseInt(brandId)}
+      `;
+
+    }
+
+    // ======================================================
+    // SORTING
+    // ======================================================
+    sql += `
+      ORDER BY
+
+      CASE
+        WHEN (
+          COALESCE(jakarta.jumlah,0)
+          +
+          COALESCE(semarang.jumlah,0)
+        ) > 0 THEN 0
+        ELSE 1
+      END,
+
+      CAST(
+        REPLACE(
+          UPPER(p.kode_produk),
+          'P',
+          ''
+        ) AS UNSIGNED
+      ) ASC
+    `;
+
+    const rows = await q(sql);
+
+    // ======================================================
+    // PISAHKAN PRODUK
+    // ======================================================
+    const tersedia = rows.filter(p =>
+      p.total_stok > 0
+    );
+
+    const sold = rows.filter(p =>
+      p.total_stok <= 0
     );
 
     // ======================================================
-// UPDATE STOK CABANG JAKARTA
-// cabang_id = 1
-// ======================================================
-if (stokChange !== 0) {
-
-  // cek stok jakarta
-  const stokRows = await q(`
-    SELECT *
-    FROM stock_cabang
-    WHERE produk_id = ?
-    AND cabang_id = 1
-    LIMIT 1
-  `, [id]);
-
-  // =====================================
-  // JIKA STOK SUDAH ADA
-  // =====================================
-  if (stokRows.length > 0) {
-
-    const stokSekarang = stokRows[0].jumlah;
-
-    let stokBaru = stokSekarang + stokChange;
-
-    // agar tidak minus
-    if (stokBaru < 0) {
-      stokBaru = 0;
-    }
-
-    await q(`
-      UPDATE stock_cabang
-      SET jumlah = ?
-      WHERE produk_id = ?
-      AND cabang_id = 1
-    `, [
-      stokBaru,
-      id
-    ]);
-
-  } else {
-
-    // =====================================
-    // JIKA BELUM ADA STOK
-    // =====================================
-    await q(`
-      INSERT INTO stock_cabang (
-        produk_id,
-        cabang_id,
-        jumlah
-      )
-      VALUES (?, ?, ?)
-    `, [
-      id,
-      1,
-      Math.max(0, stokChange)
-    ]);
-
-  }
-
-}
-
-    return res.redirect('/produk/' + id);
-  } catch (err) {
-    console.error('POST /produk/:id error:', err);
-    return res.status(500).send('Gagal memperbarui produk.');
-  }
-});
-
-// GET /export/produk/pdf
-app.get("/export/produk/pdf", async (req, res) => {
-  try {
-    const rows = await q(`
-      SELECT 
-        produk.*,
-        IFNULL(stock.jumlah, 0) AS jumlah_stok,
-        COALESCE(b.nama, 'Tanpa Brand') AS brand_name
-      FROM produk
-      LEFT JOIN stock ON produk.id = stock.produk_id
-      LEFT JOIN brand b ON produk.brand_id = b.id
-      ORDER BY brand_name ASC, produk.nama ASC
-    `);
-
     // PDF
-    const doc = new PDFDocument({ margin: 30 });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=produk.pdf");
+    // ======================================================
+    const doc = new PDFDocument({
 
-    doc.pipe(res); // <<< WAJIB, INI YANG BIKIN TIDAK PENDING
+      margin: 30,
+      size: 'A4'
 
-    doc.fontSize(20).text("Laporan Produk", { align: "center" });
-    doc.moveDown();
-
-    let currentBrand = "";
-
-    rows.forEach(item => {
-      if (item.brand_name !== currentBrand) {
-        currentBrand = item.brand_name;
-        doc.moveDown();
-        doc.fontSize(16).text(`Brand: ${currentBrand}`, { underline: true });
-      }
-
-      doc.fontSize(12).text(`- ${item.nama} | Stok: ${item.jumlah_stok}`, {
-        indent: 20,
-      });
     });
 
-    doc.end(); // <<< WAJIB SUPAYA RESPONSE SELESAI
+    res.setHeader(
+      "Content-Type",
+      "application/pdf"
+    );
+
+    // ======================================================
+    // FORMAT NAMA FILE
+    // ======================================================
+    const now = new Date();
+
+    const tanggal = now
+      .toLocaleDateString('id-ID')
+      .replace(/\//g, '-');
+
+    const jam = now
+      .toLocaleTimeString('id-ID')
+      .replace(/:/g, '-');
+
+    const namaFile =
+      `DRCOM_Laporan_Produk_${tanggal}_${jam}.pdf`;
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${namaFile}"`
+    );
+
+    doc.pipe(res);
+
+    // ======================================================
+    // HEADER PDF
+    // ======================================================
+    doc
+      .fontSize(22)
+      .text(
+        "LAPORAN PRODUK",
+        {
+          align: "center"
+        }
+      );
+
+    doc.moveDown(0.5);
+
+    doc
+      .fontSize(10)
+      .text(
+        `Tanggal Export: ${new Date().toLocaleString('id-ID')}`,
+        {
+          align: "center"
+        }
+      );
+
+    doc.moveDown(2);
+
+    // ======================================================
+    // PRODUK TERSEDIA
+    // ======================================================
+    doc
+      .fontSize(18)
+      .fillColor('green')
+      .text(
+        "STOK TERSEDIA",
+        {
+          underline: true
+        }
+      );
+
+    doc.moveDown();
+
+    let nomorUrut = 1;
+
+    tersedia.forEach(item => {
+
+      let lokasi = [];
+
+      if (item.stok_jakarta > 0) {
+
+        lokasi.push(
+          `Jakarta (${item.stok_jakarta})`
+        );
+
+      }
+
+      if (item.stok_semarang > 0) {
+
+        lokasi.push(
+          `Semarang (${item.stok_semarang})`
+        );
+
+      }
+
+      // ======================================================
+      // NOMOR OTOMATIS RAPAT
+      // ======================================================
+      doc
+        .fontSize(12)
+        .fillColor('black')
+        .text(
+          `#P${nomorUrut} - ${item.nama}`
+        );
+
+      nomorUrut++;
+
+      doc
+        .fontSize(10)
+        .text(
+          `Brand : ${item.brand_name}`
+        );
+
+      doc.text(
+        `Lokasi Stok : ${lokasi.join(', ')}`
+      );
+
+      doc.text(
+        `Total Stok : ${item.total_stok}`
+      );
+
+      doc.moveDown();
+
+      // garis
+      doc
+        .moveTo(30, doc.y)
+        .lineTo(565, doc.y)
+        .strokeColor('#cccccc')
+        .stroke();
+
+      doc.moveDown();
+
+    });
+
+    // ======================================================
+    // PRODUK SOLD
+    // ======================================================
+    if (sold.length > 0) {
+
+      doc.addPage();
+
+      doc
+        .fontSize(18)
+        .fillColor('red')
+        .text(
+          "PRODUK SOLD OUT",
+          {
+            underline: true
+          }
+        );
+
+      doc.moveDown();
+
+      sold.forEach(item => {
+
+        doc
+          .fontSize(12)
+          .fillColor('red')
+          .text(
+            `SOLD - ${item.nama}`
+          );
+
+        doc
+          .fontSize(10)
+          .fillColor('black')
+          .text(
+            `Brand : ${item.brand_name}`
+          );
+
+        doc.text(
+          `Status : SOLD OUT`
+        );
+
+
+        doc.moveDown();
+
+        doc
+          .moveTo(30, doc.y)
+          .lineTo(565, doc.y)
+          .strokeColor('#dddddd')
+          .stroke();
+
+        doc.moveDown();
+
+      });
+
+    }
+
+    // ======================================================
+    // END PDF
+    // ======================================================
+    doc.end();
 
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Gagal membuat PDF.");
+
+    console.error(
+      'EXPORT PDF ERROR:',
+      err
+    );
+
+    res.status(500).send(
+      "Gagal membuat PDF."
+    );
+
   }
+
 });
 
 

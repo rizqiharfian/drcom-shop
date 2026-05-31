@@ -81,10 +81,64 @@
             <textarea name="keterangan" class="form-control" rows="3"><%= p.keterangan || '' %></textarea>
           </div>
 
-          <div class="mb-3">
-            <label class="form-label">Perubahan stok (positif menambah, negatif mengurangi)</label>
-            <input type="number" name="stok_change" class="form-control" value="0">
-            <div class="form-text">Stok saat ini: <strong><%= stok %></strong></div>
+          <div class="row">
+
+            <!-- STOK JAKARTA -->
+            <div class="col-md-6">
+
+              <div class="card border-primary mb-3">
+
+                <div class="card-header bg-primary text-white">
+                  Stok Jakarta
+                </div>
+
+                <div class="card-body">
+
+                  <label class="form-label">
+                    Jumlah Stok
+                  </label>
+
+                  <input
+                    type="number"
+                    name="stok_jakarta"
+                    class="form-control"
+                    min="0"
+                    value="<%= stok_jakarta %>">
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- STOK SEMARANG -->
+            <div class="col-md-6">
+
+              <div class="card border-warning mb-3">
+
+                <div class="card-header bg-warning">
+                  Stok Semarang
+                </div>
+
+                <div class="card-body">
+
+                  <label class="form-label">
+                    Jumlah Stok
+                  </label>
+
+                  <input
+                    type="number"
+                    name="stok_semarang"
+                    class="form-control"
+                    min="0"
+                    value="<%= stok_semarang %>">
+
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
 
           <div class="mb-3">
