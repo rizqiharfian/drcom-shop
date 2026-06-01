@@ -1373,6 +1373,12 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
       ? parseInt(req.body.brand_id)
       : null;
 
+    const harga_modal =
+      parseFloat(req.body.harga_modal) || 0;
+
+    const harga_jual =
+      parseFloat(req.body.harga_jual) || 0;
+
     const posisi = req.body.posisi
       ? req.body.posisi.trim()
       : null;
@@ -1438,16 +1444,20 @@ app.post('/produk', upload.array('gambar', 6), async (req, res) => {
         keterangan,
         gambar,
         brand_id,
-        posisi
+        posisi,
+        harga_modal,
+        harga_jual
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       nama,
       kode_produk,
       keterangan,
       gambar,
       brand_id,
-      posisi
+      posisi,
+      harga_modal,
+      harga_jual
     ]);
 
     const produkId = result.insertId;
@@ -1802,6 +1812,9 @@ app.get('/stok/semarang', async (req, res) => {
         p.keterangan,
         p.posisi,
 
+        p.harga_modal,
+        p.harga_jual,
+
         COALESCE(sc.jumlah, 0) AS stok_semarang
 
       FROM produk p
@@ -1905,6 +1918,340 @@ app.post('/stok-semarang/tambah', async (req, res) => {
 
     console.error(err);
     res.status(500).send('Gagal tambah produk semarang');
+
+  }
+
+});
+
+// ======================================================
+// EXPORT PDF STOK SEMARANG
+// ======================================================
+
+app.get('/stok/semarang/export-pdf', async (req, res) => {
+
+  try {
+
+    const rows = await q(`
+      SELECT
+        p.kode_produk,
+        p.nama,
+        p.posisi,
+        p.harga_modal,
+        p.harga_jual,
+
+        COALESCE(sc.jumlah,0)
+        AS stok_semarang
+
+      FROM produk p
+
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id = p.id
+        AND sc.cabang_id = 2
+
+      WHERE COALESCE(sc.jumlah,0) > 0
+
+      ORDER BY
+        CAST(
+          REPLACE(
+            UPPER(p.kode_produk),
+            'P',
+            ''
+          ) AS UNSIGNED
+        ) ASC
+    `);
+
+    const doc = new PDFDocument({
+      margin: 20,
+      size: 'A4',
+      layout: 'landscape'
+    });
+
+    // =================================
+    // NAMA FILE DOWNLOAD
+    // =================================
+
+    const now = new Date();
+
+    const tanggal =
+      String(now.getDate()).padStart(2, '0') +
+      '-' +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      now.getFullYear();
+
+    const jam =
+      String(now.getHours()).padStart(2, '0') +
+      '.' +
+      String(now.getMinutes()).padStart(2, '0');
+
+    const filename =
+      `Stok Semarang ${tanggal} ${jam}.pdf`;
+
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
+    doc.pipe(res);
+
+    // =================================
+    // HEADER
+    // =================================
+
+    doc
+      .fontSize(20)
+      .text(
+        'LAPORAN STOK CABANG SEMARANG',
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown();
+
+    doc
+      .fontSize(10)
+      .text(
+        'Tanggal Cetak : ' +
+        new Date().toLocaleString('id-ID')
+      );
+
+    doc.moveDown();
+
+    // =================================
+    // HEADER TABEL
+    // =================================
+
+    let y = doc.y;
+
+    const col = {
+      no: 20,
+      kode: 60,
+      produk: 130,
+      stok: 500,
+      hargaModal: 580,
+      hargaJual: 700
+    };
+
+    function drawHeader() {
+
+      doc.font('Helvetica-Bold');
+      doc.fontSize(10);
+
+      doc.text('No', col.no, y);
+      doc.text('Kode', col.kode, y);
+      doc.text('Produk', col.produk, y);
+      doc.text('Stok', col.stok, y);
+
+      doc.text(
+        'Harga Modal',
+        col.hargaModal,
+        y,
+        {
+          width: 100,
+          align: 'right'
+        }
+      );
+
+      doc.text(
+        'Harga Jual',
+        col.hargaJual,
+        y,
+        {
+          width: 100,
+          align: 'right'
+        }
+      );
+
+      y += 20;
+
+      doc.moveTo(20, y)
+        .lineTo(820, y)
+        .strokeColor('#000')
+        .stroke();
+
+      y += 8;
+
+      doc.font('Helvetica');
+    }
+
+    drawHeader();
+
+    // =================================
+    // DATA
+    // =================================
+
+    let totalModal = 0;
+    let totalJual = 0;
+
+    rows.forEach((item, index) => {
+
+      const stok =
+        Number(item.stok_semarang || 0);
+
+      const modal =
+        Number(item.harga_modal || 0);
+
+      const jual =
+        Number(item.harga_jual || 0);
+
+      const nilaiModal =
+        stok * modal;
+
+      const nilaiJual =
+        stok * jual;
+
+      totalModal += nilaiModal;
+      totalJual += nilaiJual;
+
+      // hitung tinggi teks nama produk
+      const tinggiProduk =
+        doc.heightOfString(
+          item.nama || '-',
+          {
+            width: 220
+          }
+        );
+
+      const rowHeight =
+        Math.max(
+          tinggiProduk,
+          18
+        ) + 8;
+
+      // pindah halaman jika hampir habis
+      if (y + rowHeight > 540) {
+
+        doc.addPage();
+
+        y = 40;
+
+        drawHeader();
+
+      }
+
+      doc.text(
+        index + 1,
+        col.no,
+        y
+      );
+
+      doc.text(
+        item.kode_produk || '-',
+        col.kode,
+        y
+      );
+
+      doc.text(
+        item.nama || '-',
+        col.produk,
+        y,
+        {
+          width: 220
+        }
+      );
+
+      doc.text(
+        stok.toString(),
+        col.stok,
+        y
+      );
+
+      // doc.text(
+      //   'Rp ' +
+      //   modal.toLocaleString('id-ID'),
+      //   col.modal,
+      //   y
+      // );
+
+      // doc.text(
+      //   'Rp ' +
+      //   jual.toLocaleString('id-ID'),
+      //   col.jual,
+      //   y
+      // );
+
+      doc.text(
+        'Rp ' + modal.toLocaleString('id-ID'),
+        col.hargaModal,
+        y,
+        {
+          width: 100,
+          align: 'right'
+        }
+      );
+
+      doc.text(
+        'Rp ' + jual.toLocaleString('id-ID'),
+        col.hargaJual,
+        y,
+        {
+          width: 100,
+          align: 'right'
+        }
+      );
+
+      // garis bawah tiap row
+      doc.moveTo(20, y + rowHeight - 3)
+         .lineTo(820, y + rowHeight - 3)
+         .strokeColor('#dddddd')
+         .stroke();
+
+      y += rowHeight;
+
+    });
+
+    // =================================
+    // TOTAL
+    // =================================
+
+    y += 15;
+
+    doc.moveTo(20, y)
+       .lineTo(820, y)
+       .strokeColor('#000000')
+       .stroke();
+
+    y += 15;
+
+    // doc.font('Helvetica-Bold');
+    // doc.fontSize(11);
+
+    // doc.text(
+    //   'TOTAL NILAI MODAL STOK : Rp ' +
+    //   totalModal.toLocaleString('id-ID')
+    // );
+
+    // doc.moveDown();
+
+    // doc.text(
+    //   'TOTAL NILAI JUAL STOK : Rp ' +
+    //   totalJual.toLocaleString('id-ID')
+    // );
+
+    // doc.moveDown();
+
+    // doc.text(
+    //   'POTENSI LABA : Rp ' +
+    //   (
+    //     totalJual - totalModal
+    //   ).toLocaleString('id-ID')
+    // );
+
+    doc.end();
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal export PDF'
+    );
 
   }
 
@@ -2645,11 +2992,7 @@ app.post('/produk/:id/delete', async (req, res) => {
 // UPDATE PRODUK
 // ======================================================
 
-app.post(
-  '/produk/:id',
-  upload.array('gambar', 6),
-
-  async (req, res) => {
+app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
 
     try {
 
@@ -2702,6 +3045,12 @@ app.post(
               || null
             )
           : null;
+
+      const harga_modal =
+        parseFloat(req.body.harga_modal) || 0;
+
+      const harga_jual =
+        parseFloat(req.body.harga_jual) || 0;
 
       // ======================================================
       // STOK CABANG
@@ -2789,7 +3138,9 @@ app.post(
           keterangan = ?,
           gambar = ?,
           brand_id = ?,
-          posisi = ?
+          posisi = ?,
+          harga_modal = ?,
+          harga_jual = ?
 
         WHERE id = ?
       `, [
@@ -2800,6 +3151,8 @@ app.post(
         currentGambar,
         brand_id,
         posisi,
+        harga_modal,
+        harga_jual,
         id
 
       ]);
@@ -4812,7 +5165,7 @@ app.get('/export/all/pdf', async (req, res) => {
 });
 
 // 7️⃣ LISTEN HARUS PALING BAWAH
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });

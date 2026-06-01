@@ -76,6 +76,34 @@
             <div class="form-text">Upload gambar baru akan ditambahkan ke yang sudah ada.</div>
           </div>
 
+          <div class="row">
+
+            <div class="col-md-6">
+              <label class="form-label">
+                Harga Modal
+              </label>
+
+              <input
+                type="number"
+                name="harga_modal"
+                class="form-control"
+                value="<%= p.harga_modal || 0 %>">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">
+                Harga Jual
+              </label>
+
+              <input
+                type="number"
+                name="harga_jual"
+                class="form-control"
+                value="<%= p.harga_jual || 0 %>">
+            </div>
+
+          </div>
+
           <div class="mb-3">
             <label class="form-label">Keterangan</label>
             <textarea name="keterangan" class="form-control" rows="3"><%= p.keterangan || '' %></textarea>

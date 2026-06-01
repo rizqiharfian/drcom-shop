@@ -157,6 +157,19 @@
       <div class="badge bg-danger mt-1">STOK HABIS</div>
     <% } %><br>
     Posisi: <strong><%= p.posisi || '-' %></strong>
+    <br>
+
+    Harga Modal:
+    <strong class="text-danger">
+    Rp <%= Number(p.harga_modal || 0).toLocaleString('id-ID') %>
+    </strong>
+
+    <br>
+
+    Harga Jual:
+    <strong class="text-success">
+    Rp <%= Number(p.harga_jual || 0).toLocaleString('id-ID') %>
+    </strong>
   </div>
 
   <div class="card-actions">
@@ -233,6 +246,32 @@
             <div class="mb-3">
               <label class="form-label">Keterangan</label>
               <textarea name="keterangan" class="form-control" rows="3"></textarea>
+            </div>
+
+            <div class="row">
+
+              <div class="col-md-6">
+                <label class="form-label">Harga Modal</label>
+                <input
+                  type="number"
+                  name="harga_modal"
+                  class="form-control"
+                  min="0"
+                  value="0"
+                  required>
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">Harga Jual</label>
+                <input
+                  type="number"
+                  name="harga_jual"
+                  class="form-control"
+                  min="0"
+                  value="0"
+                  required>
+              </div>
+
             </div>
 
             <div class="mb-3">
