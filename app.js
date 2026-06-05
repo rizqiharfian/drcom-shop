@@ -1631,10 +1631,7 @@ const uploadWord = multer({
   }
 });
 
-app.post(
-  '/produk/import-word',
-  uploadWord.single('word'),
-  async (req, res) => {
+app.post('/produk/import-word', uploadWord.single('word'), async (req, res) => {
 
     try {
 
@@ -1658,7 +1655,29 @@ app.post(
       // MULAI LOOP
       // =========================
 
+      // ======================================
+      // AMBIL NOMOR TERAKHIR
+      // ======================================
+
+      const lastProduk = await q(`
+        SELECT kode_produk
+        FROM produk
+        WHERE kode_produk REGEXP '^P[0-9]+$'
+        ORDER BY CAST(REPLACE(kode_produk,'P','') AS UNSIGNED) DESC
+        LIMIT 1
+      `);
+
       let nomor = 1;
+
+      if (lastProduk.length > 0) {
+
+        nomor =
+          parseInt(
+            lastProduk[0].kode_produk.replace('P', '')
+          ) + 1;
+
+      }
+
       let berhasil = 0;
 
       for (const line of lines) {
@@ -1763,11 +1782,13 @@ app.post(
           INSERT INTO stock_cabang
           (
             produk_id,
+            cabang_id,
             jumlah
           )
-          VALUES (?, ?)
+          VALUES (?, ?, ?)
         `, [
           ins.insertId,
+          1, // Jakarta
           1
         ]);
 
@@ -1815,21 +1836,17 @@ app.get('/stok/semarang', async (req, res) => {
         p.harga_modal,
         p.harga_jual,
 
-        COALESCE(sc.jumlah, 0) AS stok_semarang
+        sc.jumlah AS stok_semarang
 
       FROM produk p
 
-      LEFT JOIN stock_cabang sc
+      INNER JOIN stock_cabang sc
         ON sc.produk_id = p.id
         AND sc.cabang_id = 2
 
+      WHERE sc.jumlah > 0
+
       ORDER BY
-
-        CASE
-          WHEN COALESCE(sc.jumlah, 0) > 0 THEN 0
-          ELSE 1
-        END,
-
         CAST(
           REPLACE(
             UPPER(p.kode_produk),
@@ -2265,36 +2282,41 @@ app.get('/stok/jakarta', async (req, res) => {
   try {
 
     const sql = `
-      SELECT
-        p.id,
-        p.kode_produk,
-        p.nama,
-        p.gambar,
-        p.keterangan,
-        p.posisi,
+    SELECT
+      p.id,
+      p.kode_produk,
+      p.nama,
+      p.gambar,
+      p.keterangan,
+      p.posisi,
+      p.harga_modal,
 
-        COALESCE(sc.jumlah, 0) AS stok_jakarta
+      COALESCE(jkt.jumlah,0) AS stok_jakarta,
+      COALESCE(smg.jumlah,0) AS keluar_ke_semarang
 
-      FROM produk p
+    FROM produk p
 
-      LEFT JOIN stock_cabang sc
-        ON sc.produk_id = p.id
-        AND sc.cabang_id = 1
+    LEFT JOIN stock_cabang jkt
+      ON jkt.produk_id = p.id
+      AND jkt.cabang_id = 1
 
-      ORDER BY
+    LEFT JOIN stock_cabang smg
+      ON smg.produk_id = p.id
+      AND smg.cabang_id = 2
 
-        CASE
-          WHEN COALESCE(sc.jumlah, 0) > 0 THEN 0
-          ELSE 1
-        END,
+    ORDER BY
+      CASE
+        WHEN COALESCE(jkt.jumlah,0) > 0 THEN 0
+        ELSE 1
+      END,
 
-        CAST(
-          REPLACE(
-            UPPER(p.kode_produk),
-            'P',
-            ''
-          ) AS UNSIGNED
-        ) ASC
+      CAST(
+        REPLACE(
+          UPPER(p.kode_produk),
+          'P',
+          ''
+        ) AS UNSIGNED
+      ) ASC
     `;
 
     const rows = await q(sql);
@@ -2307,9 +2329,11 @@ app.get('/stok/jakarta', async (req, res) => {
         ? p.gambar.split(',')
         : [],
 
-      keluar_ke_semarang: 0,
+      keluar_ke_semarang:
+        Number(p.keluar_ke_semarang || 0),
 
-      sisa_stok: p.stok_jakarta
+      sisa_stok:
+        Number(p.stok_jakarta || 0)
 
     }));
 
@@ -5163,6 +5187,443 @@ app.get('/export/all/pdf', async (req, res) => {
     }
   }
 });
+
+// ======================================================
+// HALAMAN SPAREPART / AKSESORIS
+// ======================================================
+
+app.get('/sparepart', async (req, res) => {
+
+  try {
+
+    const rows = await q(`
+      SELECT *
+      FROM sparepart
+      ORDER BY
+      CAST(
+        REPLACE(
+          UPPER(kode_sparepart),
+          'SP',
+          ''
+        ) AS UNSIGNED
+      ) ASC
+    `);
+
+    res.render('sparepart', {
+      sparepart: rows
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal load sparepart'
+    );
+
+  }
+
+});
+
+// ======================================================
+// TAMBAH SPAREPART
+// ======================================================
+
+app.post('/sparepart/tambah', async (req, res) => {
+
+  try {
+
+    const {
+      nama,
+      kategori,
+      harga_modal,
+      harga_jual,
+      stok,
+      posisi,
+      keterangan
+    } = req.body;
+
+    const last = await q(`
+      SELECT kode_sparepart
+      FROM sparepart
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+
+    let nomor = 1;
+
+    if (last.length > 0) {
+
+      nomor =
+        parseInt(
+          last[0].kode_sparepart.replace('SP', '')
+        ) + 1;
+
+    }
+
+    const kode =
+      'SP' + nomor;
+
+    await q(`
+      INSERT INTO sparepart
+      (
+        kode_sparepart,
+        nama,
+        kategori,
+        harga_modal,
+        harga_jual,
+        stok,
+        posisi,
+        keterangan
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      kode,
+      nama,
+      kategori,
+      harga_modal || 0,
+      harga_jual || 0,
+      stok || 0,
+      posisi,
+      keterangan
+    ]);
+
+    res.redirect('/sparepart');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal tambah sparepart'
+    );
+
+  }
+
+});
+
+// ======================================================
+// FORM EDIT
+// ======================================================
+
+app.get('/sparepart/edit/:id', async (req, res) => {
+
+  const id = req.params.id;
+
+  const data = await q(`
+    SELECT *
+    FROM sparepart
+    WHERE id = ?
+  `, [id]);
+
+  if (!data.length) {
+    return res.send('Data tidak ditemukan');
+  }
+
+  res.render('sparepart_edit', {
+    sparepart: data[0]
+  });
+
+});
+
+app.post('/sparepart/edit/:id', async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    const {
+      nama,
+      kategori,
+      harga_modal,
+      harga_jual,
+      stok,
+      posisi,
+      keterangan
+    } = req.body;
+
+    await q(`
+      UPDATE sparepart
+      SET
+        nama=?,
+        kategori=?,
+        harga_modal=?,
+        harga_jual=?,
+        stok=?,
+        posisi=?,
+        keterangan=?
+      WHERE id=?
+    `, [
+      nama,
+      kategori,
+      harga_modal,
+      harga_jual,
+      stok,
+      posisi,
+      keterangan,
+      id
+    ]);
+
+    res.redirect('/sparepart');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send('Gagal update sparepart');
+
+  }
+
+});
+
+app.post('/sparepart/hapus/:id', async (req, res) => {
+
+  try {
+
+    await q(`
+      DELETE FROM sparepart
+      WHERE id = ?
+    `, [
+      req.params.id
+    ]);
+
+    res.redirect('/sparepart');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal hapus sparepart'
+    );
+
+  }
+
+});
+
+// ======================================================
+// EXPORT PDF SPAREPART
+// ======================================================
+
+app.get('/export/sparepart/pdf', async (req, res) => {
+
+  try {
+
+    const data = await q(`
+      SELECT *
+      FROM sparepart
+      ORDER BY
+      CAST(
+        REPLACE(
+          UPPER(kode_sparepart),
+          'SP',
+          ''
+        ) AS UNSIGNED
+      ) ASC
+    `);
+
+    const doc = new PDFDocument({
+      margin: 30,
+      size: 'A4',
+      layout: 'landscape'
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename=sparepart.pdf'
+    );
+
+    doc.pipe(res);
+
+    // ==================================
+    // HEADER
+    // ==================================
+
+    doc
+      .fontSize(18)
+      .text(
+        'DATA SPAREPART & AKSESORIS DRCOM',
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown(0.5);
+
+    doc
+      .fontSize(10)
+      .text(
+        `Dicetak: ${new Date().toLocaleString('id-ID')}`,
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown();
+
+    // ==================================
+    // KOLOM
+    // ==================================
+
+    let y = 130;
+
+    doc
+      .fontSize(9)
+      .font('Helvetica-Bold');
+
+    doc.text('No', 30, y);
+    doc.text('Kode', 60, y);
+    doc.text('Nama', 120, y);
+    doc.text('Kategori', 320, y);
+    doc.text('Modal', 420, y);
+    doc.text('Jual', 520, y);
+    doc.text('Stok', 620, y);
+    doc.text('Posisi', 680, y);
+
+    y += 20;
+
+    doc.moveTo(30, y - 5)
+      .lineTo(800, y - 5)
+      .stroke();
+
+    // ==================================
+    // DATA
+    // ==================================
+
+    doc.font('Helvetica');
+
+    data.forEach((sp, index) => {
+
+      if (y > 540) {
+
+        doc.addPage();
+
+        y = 50;
+
+      }
+
+      doc.text(index + 1, 30, y);
+
+      doc.text(
+        sp.kode_sparepart || '-',
+        60,
+        y
+      );
+
+      doc.text(
+        (sp.nama || '').substring(0, 35),
+        120,
+        y,
+        {
+          width: 180
+        }
+      );
+
+      doc.text(
+        sp.kategori || '-',
+        320,
+        y,
+        {
+          width: 90
+        }
+      );
+
+      doc.text(
+        Number(
+          sp.harga_modal || 0
+        ).toLocaleString('id-ID'),
+        420,
+        y
+      );
+
+      doc.text(
+        Number(
+          sp.harga_jual || 0
+        ).toLocaleString('id-ID'),
+        520,
+        y
+      );
+
+      doc.text(
+        sp.stok || 0,
+        620,
+        y
+      );
+
+      doc.text(
+        sp.posisi || '-',
+        680,
+        y
+      );
+
+      y += 22;
+
+      doc.moveTo(30, y - 4)
+        .lineTo(800, y - 4)
+        .strokeColor('#dddddd')
+        .stroke();
+
+    });
+
+    // ==================================
+    // TOTAL
+    // ==================================
+
+    y += 15;
+
+    const totalModal = data.reduce(
+      (a, b) =>
+        a +
+        (
+          Number(b.harga_modal || 0) *
+          Number(b.stok || 0)
+        ),
+      0
+    );
+
+    const totalJual = data.reduce(
+      (a, b) =>
+        a +
+        (
+          Number(b.harga_jual || 0) *
+          Number(b.stok || 0)
+        ),
+      0
+    );
+
+    doc.moveDown();
+
+    // doc
+    //   .font('Helvetica-Bold')
+    //   .fontSize(11);
+
+    // doc.text(
+    //   `Total Nilai Modal : Rp ${totalModal.toLocaleString('id-ID')}`
+    // );
+
+    // doc.text(
+    //   `Total Nilai Jual : Rp ${totalJual.toLocaleString('id-ID')}`
+    // );
+
+    doc.end();
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal export PDF sparepart'
+    );
+
+  }
+
+});
+
 
 // 7️⃣ LISTEN HARUS PALING BAWAH
 const PORT = process.env.PORT || 3000;
