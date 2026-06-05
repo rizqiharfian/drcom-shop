@@ -113,6 +113,10 @@
               Stok Jakarta
             </th>
 
+            <th width="120">
+              Stok Jakarta
+            </th>
+
             <th width="100">
               Terkirim
             </th>
@@ -211,6 +215,11 @@ if (p.sisa_stok > 0) {
 
     <%= p.posisi || '-' %>
 
+  </td>
+
+  <!-- HARGA MODAL -->
+  <td class="text-end">
+    Rp <%= Number(p.harga_modal || 0).toLocaleString('id-ID') %>
   </td>
 
   <!-- STOK -->
