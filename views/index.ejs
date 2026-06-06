@@ -41,6 +41,7 @@
           <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
+          <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar-alex' ? 'active' : '' %>" href="/barang-keluar-alex">Barang Keluar Alex</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/sparepart' ? 'active' : '' %>" href="/sparepart">Sparepart</a></li>
         </ul>
@@ -499,6 +500,155 @@
       </table>
     </div>
     <nav><ul id="paginationBK" class="pagination"></ul></nav>
+
+    <hr>
+
+<!-- ================= Riwayat Barang Keluar Alex ================= -->
+<h3 class="text-center mb-3">
+  Riwayat Barang Keluar Alex
+</h3>
+
+<div class="table-responsive mb-2">
+  <table class="table table-bordered table-striped table-hover">
+    <thead class="table-dark text-center">
+      <tr>
+        <th width="60">No</th>
+        <th>Kode</th>
+        <th>Nama Barang</th>
+        <th width="100">Jumlah</th>
+        <th>Keterangan</th>
+        <th width="150">Status</th>
+        <th width="180">Tanggal</th>
+        <th width="220">Aksi</th>
+      </tr>
+    </thead>
+
+    <tbody>
+
+      <% if(typeof barangKeluarAlexList !== 'undefined' && barangKeluarAlexList.length > 0){ %>
+
+        <% (barangKeluarAlexList || []).forEach((item,index)=>{ %>
+
+          <tr>
+
+            <td class="text-center">
+              <%= index + 1 %>
+            </td>
+
+            <td>
+              <%= item.kode_barang || '-' %>
+            </td>
+
+            <td>
+              <%= item.nama_barang %>
+            </td>
+
+            <td class="text-center">
+              <%= item.jumlah %>
+            </td>
+
+            <td>
+              <%= item.keterangan || '-' %>
+            </td>
+
+            <td class="text-center">
+
+              <% if(item.status === 'pending'){ %>
+
+                <span class="badge bg-danger">
+                  Pending
+                </span>
+
+              <% } %>
+
+              <% if(item.status === 'selesai_stok'){ %>
+
+                <span class="badge bg-success">
+                  Selesai Masuk Stok
+                </span>
+
+              <% } %>
+
+              <% if(item.status === 'selesai_beres'){ %>
+
+                <span class="badge bg-success">
+                  Selesai Beres
+                </span>
+
+              <% } %>
+
+            </td>
+
+            <td class="text-center">
+              <%= new Date(item.created_at).toLocaleString('id-ID') %>
+            </td>
+
+            <td class="text-center">
+
+              <% if(item.status === 'pending'){ %>
+
+                <form
+                  action="/barang-keluar-alex/selesai-stok/<%= item.id %>"
+                  method="POST"
+                  style="display:inline;">
+
+                  <button
+                    type="submit"
+                    class="btn btn-success btn-sm">
+
+                    Masuk Stok
+
+                  </button>
+
+                </form>
+
+                <form
+                  action="/barang-keluar-alex/selesai-beres/<%= item.id %>"
+                  method="POST"
+                  style="display:inline;">
+
+                  <button
+                    type="submit"
+                    class="btn btn-primary btn-sm">
+
+                    Beres
+
+                  </button>
+
+                </form>
+
+              <% } else { %>
+
+                <span class="text-success fw-bold">
+                  Selesai
+                </span>
+
+              <% } %>
+
+            </td>
+
+          </tr>
+
+        <% }) %>
+
+      <% } else { %>
+
+        <tr>
+
+          <td colspan="8" class="text-center text-muted">
+
+            Belum ada data Barang Keluar Alex
+
+          </td>
+
+        </tr>
+
+      <% } %>
+
+    </tbody>
+
+  </table>
+</div>
 
   </div>
 

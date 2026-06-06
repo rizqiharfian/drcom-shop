@@ -190,7 +190,25 @@ rowsBK.forEach(r => {
     keterangan: r.keterangan,
     status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
   });
-});
+  });
+  // ======================
+  // BARANG KELUAR ALEX
+  // ======================
+
+  const barangKeluarAlexList = await q(`
+    SELECT
+      a.*,
+      p.nama AS nama_produk
+    FROM barang_alex_keluar a
+    LEFT JOIN produk p
+      ON p.id = a.produk_id
+    ORDER BY
+      CASE
+        WHEN a.status = 'pending' THEN 0
+        ELSE 1
+      END,
+      a.created_at DESC
+  `);
 const listBarangKeluar = Object.values(groupedBK);
 
     // render index dengan semua data
@@ -198,7 +216,8 @@ const listBarangKeluar = Object.values(groupedBK);
       produk,
       pembelian,
       barangMasukList: listBarangMasuk,
-      barangKeluarList: listBarangKeluar
+      barangKeluarList: listBarangKeluar,
+      barangKeluarAlexList
     });
   } catch (err) {
     console.error('GET / error:', err);
@@ -1520,10 +1539,8 @@ const uploadExcel = multer({
     fileSize: 10 * 1024 * 1024
   }
 });
-app.post(
-  '/produk/import-excel',
-  uploadExcel.single('excel'),
-  async (req, res) => {
+
+app.post('/produk/import-excel', uploadExcel.single('excel'), async (req, res) => {
 
     try {
 
@@ -5186,6 +5203,571 @@ app.get('/export/all/pdf', async (req, res) => {
       res.status(500).send('Gagal generate PDF gabungan.');
     }
   }
+});
+
+// ======================================================
+// HALAMAN BARANG KELUAR ALEX
+// ======================================================
+
+app.get('/barang-keluar-alex', async (req, res) => {
+  try {
+
+    const produk = await q(`
+      SELECT
+        id,
+        nama
+      FROM produk
+      ORDER BY nama ASC
+    `);
+
+    const data = await q(`
+      SELECT
+        a.*,
+        p.nama AS nama_produk
+      FROM barang_alex_keluar a
+      LEFT JOIN produk p
+        ON p.id = a.produk_id
+      ORDER BY
+        CASE
+          WHEN a.status = 'pending' THEN 0
+          ELSE 1
+        END,
+        a.created_at DESC
+    `);
+
+    res.render('barang_keluar_alex', {
+      produk,
+      data
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal mengambil data Barang Keluar Alex'
+    );
+
+  }
+});
+
+app.post('/barang-keluar-alex', async (req, res) => {
+
+  try {
+
+    const {
+      tujuan,
+      produk_id,
+      produk_baru,
+      jumlah,
+      keterangan
+    } = req.body;
+
+    let finalProdukId = null;
+    let namaBarang = null;
+
+    // ======================================
+    // PILIH PRODUK DARI MASTER
+    // ======================================
+
+    if (produk_id && produk_id !== '') {
+
+      finalProdukId = parseInt(produk_id);
+
+      const produk = await q(`
+        SELECT nama
+        FROM produk
+        WHERE id = ?
+        LIMIT 1
+      `, [finalProdukId]);
+
+      if (produk.length) {
+        namaBarang = produk[0].nama;
+      }
+
+    }
+
+    // ======================================
+    // PRODUK BARU
+    // ======================================
+
+    if ((!finalProdukId || finalProdukId === '') && produk_baru) {
+
+      namaBarang = produk_baru.trim();
+
+      // generate kode produk otomatis
+      const lastProduk = await q(`
+        SELECT kode_produk
+        FROM produk
+        ORDER BY CAST(
+          REPLACE(
+            UPPER(kode_produk),
+            'P',
+            ''
+          ) AS UNSIGNED
+        ) DESC
+        LIMIT 1
+      `);
+
+      let kode_produk = 'P1';
+
+      if (lastProduk.length > 0) {
+
+        const lastKode =
+          lastProduk[0].kode_produk || 'P0';
+
+        const nomor = parseInt(
+          lastKode.replace(/[^0-9]/g, '')
+        ) || 0;
+
+        kode_produk = 'P' + (nomor + 1);
+
+      }
+
+      // insert produk baru
+      const insertProduk = await q(`
+        INSERT INTO produk (
+          nama,
+          kode_produk,
+          keterangan,
+          gambar,
+          brand_id,
+          posisi,
+          harga_modal,
+          harga_jual
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        namaBarang,
+        kode_produk,
+        null,
+        '',
+        null,
+        null,
+        0,
+        0
+      ]);
+
+      finalProdukId = insertProduk.insertId;
+
+      // buat stok cabang default
+      await q(`
+        INSERT INTO stock_cabang (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+        VALUES (?, ?, ?)
+      `, [
+        finalProdukId,
+        1,
+        0
+      ]);
+
+    }
+
+    // ======================================
+    // VALIDASI
+    // ======================================
+
+    if (!finalProdukId) {
+      return res.status(400).send(
+        'Produk harus dipilih atau dibuat baru'
+      );
+    }
+
+    // ======================================
+    // SIMPAN BARANG ALEX
+    // ======================================
+
+    await q(`
+      INSERT INTO barang_alex_keluar
+      (
+        tujuan,
+        produk_id,
+        nama_barang,
+        jumlah,
+        keterangan,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, 'pending')
+    `, [
+      tujuan,
+      finalProdukId,
+      namaBarang,
+      parseInt(jumlah) || 0,
+      keterangan || null
+    ]);
+
+    res.redirect('/barang-keluar-alex');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal menyimpan Barang Keluar Alex'
+    );
+
+  }
+
+});
+
+// ======================================================
+// MASUK STOK
+// ======================================================
+
+app.post('/barang-keluar-alex/:id/masuk-stok', async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    const rows = await q(`
+      SELECT *
+      FROM barang_alex_keluar
+      WHERE id = ?
+    `, [id]);
+
+    if (!rows.length) {
+      return res.status(404).send('Data tidak ditemukan');
+    }
+
+    const item = rows[0];
+
+    await beginTransaction();
+
+    // update status
+    await q(`
+      UPDATE barang_alex_keluar
+      SET status = 'masuk_stok'
+      WHERE id = ?
+    `, [id]);
+
+    // buat transaksi barang masuk
+    const bm = await q(`
+      INSERT INTO barang_masuk
+      (
+        pengirim
+      )
+      VALUES (?)
+    `, [
+      item.tujuan || 'ALEX'
+    ]);
+
+    // detail barang masuk
+    await q(`
+      INSERT INTO barang_masuk_detail
+      (
+        barang_masuk_id,
+        produk_id,
+        jumlah,
+        keterangan
+      )
+      VALUES (?, ?, ?, ?)
+    `, [
+      bm.insertId,
+      item.produk_id,
+      item.jumlah,
+      'AUTO DARI BARANG KELUAR ALEX'
+    ]);
+
+    // tambah stok cabang utama
+    await q(`
+      INSERT INTO stock_cabang
+      (
+        produk_id,
+        cabang_id,
+        jumlah
+      )
+      VALUES (?, 1, ?)
+
+      ON DUPLICATE KEY UPDATE
+
+      jumlah = jumlah + VALUES(jumlah)
+    `, [
+      item.produk_id,
+      item.jumlah
+    ]);
+
+    await commit();
+
+    res.redirect('/barang-keluar-alex');
+
+  } catch (err) {
+
+    console.error(err);
+
+    try {
+      await rollback();
+    } catch(e){}
+
+    res.status(500).send('Gagal proses masuk stok');
+
+  }
+
+});
+
+
+// ======================================================
+// BERES
+// ======================================================
+
+app.post('/barang-keluar-alex/:id/beres', async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    await q(`
+      UPDATE barang_alex_keluar
+      SET status = 'beres'
+      WHERE id = ?
+    `, [id]);
+
+    res.redirect('/barang-keluar-alex');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send('Gagal update status');
+
+  }
+
+});
+
+// ======================================================
+// EXPORT PDF BARANG KELUAR ALEX
+// ======================================================
+
+app.get('/export/barang-keluar-alex', async (req, res) => {
+
+  try {
+
+    const { start, end } = req.query;
+
+    let where = '';
+    let params = [];
+
+    if (start && end) {
+
+      where = `
+        WHERE DATE(a.created_at)
+        BETWEEN ? AND ?
+      `;
+
+      params.push(start, end);
+
+    }
+
+    const rows = await q(`
+      SELECT
+        a.*,
+        p.nama AS nama_produk
+      FROM barang_alex_keluar a
+      LEFT JOIN produk p
+        ON p.id = a.produk_id
+      ${where}
+      ORDER BY a.created_at DESC
+    `, params);
+
+    const doc = new PDFDocument({
+      size: 'A4',
+      layout: 'landscape',
+      margin: 25
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename=Laporan-Barang-Keluar-Alex.pdf'
+    );
+
+    doc.pipe(res);
+
+    // =====================================
+    // HEADER
+    // =====================================
+
+    doc
+      .fontSize(18)
+      .text(
+        'LAPORAN BARANG KELUAR ALEX',
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown(0.5);
+
+    if (start && end) {
+
+      doc
+        .fontSize(10)
+        .text(
+          `Periode : ${start} s/d ${end}`,
+          {
+            align: 'center'
+          }
+        );
+
+    }
+
+    doc.moveDown(0.5);
+
+    doc
+      .fontSize(10)
+      .text(
+        `Tanggal Cetak : ${new Date().toLocaleString('id-ID')}`,
+        {
+          align: 'right'
+        }
+      );
+
+    doc.moveDown();
+
+    let totalBarang = 0;
+
+    rows.forEach(item => {
+      totalBarang += Number(item.jumlah || 0);
+    });
+
+    doc
+      .fontSize(11)
+      .text(`Total Data : ${rows.length}`);
+
+    doc
+      .fontSize(11)
+      .text(`Total Qty : ${totalBarang}`);
+
+    doc.moveDown();
+
+    // =====================================
+    // HEADER TABEL
+    // =====================================
+
+    let y = doc.y;
+
+    const rowHeight = 22;
+
+    doc.rect(20, y, 780, rowHeight).stroke();
+
+    doc.text('No', 25, y + 6);
+    doc.text('Tujuan', 55, y + 6);
+    doc.text('Produk', 180, y + 6);
+    doc.text('Qty', 370, y + 6);
+    doc.text('Status', 430, y + 6);
+    doc.text('Tanggal', 520, y + 6);
+
+    y += rowHeight;
+
+    // =====================================
+    // DATA
+    // =====================================
+
+    rows.forEach((r, index) => {
+
+      if (y > 520) {
+
+        doc.addPage();
+
+        y = 40;
+
+        doc.rect(20, y, 780, rowHeight).stroke();
+
+        doc.text('No', 25, y + 6);
+        doc.text('Tujuan', 55, y + 6);
+        doc.text('Produk', 180, y + 6);
+        doc.text('Qty', 370, y + 6);
+        doc.text('Status', 430, y + 6);
+        doc.text('Tanggal', 520, y + 6);
+
+        y += rowHeight;
+
+      }
+
+      doc.rect(20, y, 780, rowHeight).stroke();
+
+      doc.text(
+        String(index + 1),
+        25,
+        y + 6
+      );
+
+      doc.text(
+        r.tujuan || '-',
+        55,
+        y + 6,
+        {
+          width: 110
+        }
+      );
+
+      doc.text(
+        r.nama_produk ||
+        r.nama_barang ||
+        '-',
+        180,
+        y + 6,
+        {
+          width: 170
+        }
+      );
+
+      doc.text(
+        String(r.jumlah || 0),
+        370,
+        y + 6
+      );
+
+      doc.text(
+        r.status || '-',
+        430,
+        y + 6
+      );
+
+      doc.text(
+        new Date(
+          r.created_at
+        ).toLocaleDateString('id-ID'),
+        520,
+        y + 6
+      );
+
+      y += rowHeight;
+
+    });
+
+    // =====================================
+    // FOOTER
+    // =====================================
+
+    doc.moveDown(2);
+
+    doc.text(
+      `Dicetak oleh Sistem Inventori DR.COM`,
+      {
+        align: 'right'
+      }
+    );
+
+    doc.end();
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal export PDF'
+    );
+
+  }
+
 });
 
 // ======================================================
