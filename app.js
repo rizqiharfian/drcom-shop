@@ -211,13 +211,26 @@ rowsBK.forEach(r => {
   `);
 const listBarangKeluar = Object.values(groupedBK);
 
+const barangHilang = await q(`
+      SELECT
+        bh.*,
+        p.nama,
+        p.kode_produk
+      FROM barang_hilang bh
+      LEFT JOIN produk p
+        ON p.id = bh.produk_id
+      WHERE bh.status = 'hilang'
+      ORDER BY bh.created_at DESC
+    `);
+
     // render index dengan semua data
     res.render('index', {
       produk,
       pembelian,
       barangMasukList: listBarangMasuk,
       barangKeluarList: listBarangKeluar,
-      barangKeluarAlexList
+      barangKeluarAlexList,
+      barangHilang
     });
   } catch (err) {
     console.error('GET / error:', err);
@@ -225,6 +238,399 @@ const listBarangKeluar = Object.values(groupedBK);
   }
 });
 
+// ======================================================
+// HALAMAN BARANG HILANG
+// ======================================================
+
+app.get('/barang-hilang', async (req,res)=>{
+
+  try{
+
+    const produk = await q(`
+      SELECT
+        id,
+        nama,
+        kode_produk
+      FROM produk
+      ORDER BY nama ASC
+    `);
+
+    const data = await q(`
+      SELECT
+        bh.*,
+        p.nama,
+        p.kode_produk
+      FROM barang_hilang bh
+      LEFT JOIN produk p
+        ON p.id = bh.produk_id
+      ORDER BY
+        CASE
+          WHEN bh.status='hilang' THEN 0
+          ELSE 1
+        END,
+        bh.created_at DESC
+    `);
+
+    res.render(
+      'barang_hilang',
+      {
+        produk,
+        data,
+        path:'/barang-hilang'
+      }
+    );
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send(err.message);
+
+  }
+
+});
+
+app.post('/barang-hilang', async (req,res)=>{
+
+  try{
+
+    const {
+      produk_id,
+      jumlah,
+      keterangan
+    } = req.body;
+
+    await q(`
+      INSERT INTO barang_hilang
+      (
+        produk_id,
+        jumlah,
+        keterangan
+      )
+      VALUES (?, ?, ?)
+    `,[
+      produk_id,
+      jumlah,
+      keterangan || null
+    ]);
+
+    res.redirect('/barang-hilang');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal');
+
+  }
+
+});
+
+app.post('/barang-hilang/:id/ditemukan', async (req,res)=>{
+
+  try{
+
+    await q(`
+      UPDATE barang_hilang
+      SET status='ditemukan'
+      WHERE id=?
+    `,[
+      req.params.id
+    ]);
+
+    res.redirect('/barang-hilang');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal');
+
+  }
+
+});
+
+// ======================================================
+// EXPORT PDF BARANG HILANG
+// ======================================================
+
+app.get('/barang-hilang/export', async (req,res)=>{
+
+  try{
+
+    const type = req.query.type || 'all';
+
+    let where = '';
+    let params = [];
+
+    if(type === 'hari'){
+
+      where = `
+        WHERE DATE(bh.created_at)=CURDATE()
+      `;
+
+    }
+
+    if(type === 'minggu'){
+
+      where = `
+        WHERE bh.created_at >= DATE_SUB(NOW(),INTERVAL 7 DAY)
+      `;
+
+    }
+
+    if(type === 'bulan'){
+
+      where = `
+        WHERE MONTH(bh.created_at)=MONTH(NOW())
+        AND YEAR(bh.created_at)=YEAR(NOW())
+      `;
+
+    }
+
+    const rows = await q(`
+      SELECT
+        bh.*,
+        p.nama,
+        p.kode_produk,
+        p.harga_modal
+      FROM barang_hilang bh
+      LEFT JOIN produk p
+        ON p.id = bh.produk_id
+      ${where}
+      ORDER BY bh.created_at DESC
+    `,params);
+
+    let totalKerugian = 0;
+    let totalQty = 0;
+
+    rows.forEach(r=>{
+
+      const hargaModal =
+        Number(r.harga_modal || 0);
+
+      const qty =
+        Number(r.jumlah || 0);
+
+      totalQty += qty;
+
+      totalKerugian +=
+        hargaModal * qty;
+
+    });
+
+    const doc = new PDFDocument({
+      size:'A4',
+      layout:'landscape',
+      margin:20
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename=barang-hilang.pdf'
+    );
+
+    doc.pipe(res);
+
+    // =====================================
+    // HEADER
+    // =====================================
+
+    doc
+      .fontSize(18)
+      .text(
+        'LAPORAN BARANG HILANG / BELUM KETEMU',
+        {
+          align:'center'
+        }
+      );
+
+    doc.moveDown();
+
+    doc
+      .fontSize(10)
+      .text(
+        `Dicetak : ${new Date().toLocaleString('id-ID')}`,
+        {
+          align:'right'
+        }
+      );
+
+    doc.moveDown();
+
+    doc
+      .fontSize(11)
+      .text(`Total Data : ${rows.length}`);
+
+    doc.text(`Total Qty Hilang : ${totalQty}`);
+
+    doc.text(
+      `Total Kerugian Modal : Rp ${totalKerugian.toLocaleString('id-ID')}`
+    );
+
+    doc.moveDown();
+
+    // =====================================
+    // TABLE HEADER
+    // =====================================
+
+    let y = doc.y;
+
+    doc.rect(20,y,780,30).stroke();
+
+    doc.text('No',25,y+8);
+    doc.text('Kode',55,y+8);
+    doc.text('Produk',130,y+8);
+    doc.text('Qty',430,y+8);
+    doc.text('Harga Modal',490,y+8);
+    doc.text('Total',620,y+8);
+    doc.text('Status',730,y+8);
+
+    y += 30;
+
+    // =====================================
+    // DATA
+    // =====================================
+
+    rows.forEach((r,index)=>{
+
+      const hargaModal =
+        Number(r.harga_modal || 0);
+
+      const total =
+        hargaModal * Number(r.jumlah || 0);
+
+      // Lebar produk maksimal 280 px
+      const tinggiProduk = doc.heightOfString(
+        r.nama || '-',
+        {
+          width:280
+        }
+      );
+
+      const rowHeight =
+        Math.max(
+          35,
+          tinggiProduk + 15
+        );
+
+      if(y + rowHeight > 520){
+
+        doc.addPage();
+
+        y = 40;
+
+      }
+
+      doc.rect(
+        20,
+        y,
+        780,
+        rowHeight
+      ).stroke();
+
+      doc.text(
+        String(index + 1),
+        25,
+        y + 10
+      );
+
+      doc.text(
+        r.kode_produk || '-',
+        55,
+        y + 10,
+        {
+          width:60
+        }
+      );
+
+      doc.text(
+        r.nama || '-',
+        130,
+        y + 10,
+        {
+          width:280,
+          align:'left'
+        }
+      );
+
+      doc.text(
+        String(r.jumlah),
+        430,
+        y + 10,
+        {
+          width:40,
+          align:'left'
+        }
+      );
+
+      doc.text(
+        `Rp ${hargaModal.toLocaleString('id-ID')}`,
+        490,
+        y + 10,
+        {
+          width:110
+        }
+      );
+
+      doc.text(
+        `Rp ${total.toLocaleString('id-ID')}`,
+        620,
+        y + 10,
+        {
+          width:90
+        }
+      );
+
+      doc.text(
+        r.status || '-',
+        730,
+        y + 10,
+        {
+          width:50
+        }
+      );
+
+      y += rowHeight;
+
+    });
+
+    // =====================================
+    // FOOTER TOTAL
+    // =====================================
+
+    y += 20;
+
+    doc
+      .fontSize(14)
+      .font('Helvetica-Bold')
+      .text(
+        `TOTAL KERUGIAN MODAL : Rp ${totalKerugian.toLocaleString('id-ID')}`,
+        0,
+        y,
+        {
+          align:'right'
+        }
+      );
+
+    doc.end();
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal export PDF Barang Hilang'
+    );
+
+  }
+
+});
 
 // ---------- PEMBELIAN PRODUK (create as PENDING) ----------
 // ==========================================

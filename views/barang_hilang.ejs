@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Barang Hilang / Belum Ketemu</title>
+
+<link rel="icon" href="/drcom.png">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+
+<style>
+
+body{
+    background:#f8f9fa;
+}
+
+.badge-hilang{
+    background:#dc3545;
+}
+
+.badge-ketemu{
+    background:#198754;
+}
+
+.select2-container .select2-selection--single{
+    height:38px;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered{
+    line-height:38px;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow{
+    height:38px;
+}
+
+</style>
+
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+
+    <div class="container">
+
+        <a class="navbar-brand" href="/">
+            Manajemen Toko
+        </a>
+
+        <button
+            class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#navbarNav">
+
+            <span class="navbar-toggler-icon"></span>
+
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item"><a class="nav-link" href="/">Beranda</a></li>
+                <li class="nav-item"><a class="nav-link" href="/barang-masuk">Barang Masuk</a></li>
+                <li class="nav-item"><a class="nav-link" href="/barang-keluar">Barang Keluar</a></li>
+                <li class="nav-item"><a class="nav-link" href="/barang-keluar-alex">Barang Keluar Alex</a></li>
+                <li class="nav-item"><a class="nav-link active" href="/barang-hilang">Barang Hilang</a></li>
+                <li class="nav-item"><a class="nav-link" href="/produk">Produk</a></li>
+            </ul>
+
+        </div>
+
+    </div>
+
+</nav>
+
+<div class="container">
+
+    <!-- FORM -->
+    <div class="card shadow-sm mb-4">
+
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0">
+                Input Barang Hilang / Belum Ketemu
+            </h5>
+
+        </div>
+
+        <div class="card-body">
+
+            <form action="/barang-hilang" method="POST">
+
+                <div class="row g-3">
+
+                    <div class="col-md-6">
+
+                        <label class="form-label">
+                            Cari Produk / Unit
+                        </label>
+
+                        <select
+                            name="produk_id"
+                            class="form-select produk-select"
+                            required>
+
+                            <option value="">
+                                Cari produk...
+                            </option>
+
+                            <% produk.forEach(p => { %>
+
+                                <option value="<%= p.id %>">
+
+                                    <%= p.kode_produk %> -
+                                    <%= p.nama %>
+
+                                    <% if(p.stok){ %>
+                                        (Stok: <%= p.stok %>)
+                                    <% } %>
+
+                                </option>
+
+                            <% }) %>
+
+                        </select>
+
+                    </div>
+
+                    <div class="col-md-2">
+
+                        <label class="form-label">
+                            Jumlah
+                        </label>
+
+                        <input
+                            type="number"
+                            name="jumlah"
+                            class="form-control"
+                            required>
+
+                    </div>
+
+                    <div class="col-md-4">
+
+                        <label class="form-label">
+                            Keterangan
+                        </label>
+
+                        <input
+                            type="text"
+                            name="keterangan"
+                            class="form-control"
+                            placeholder="Contoh: Belum ditemukan saat stok opname">
+
+                    </div>
+
+                </div>
+
+                <button
+                    type="submit"
+                    class="btn btn-danger mt-3">
+
+                    Simpan Barang Hilang
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <!-- TABEL -->
+    <div class="card shadow-sm">
+
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0">
+                Daftar Barang Hilang / Belum Ketemu
+            </h5>
+        </div>
+
+        <div class="d-flex justify-content-end mb-3">
+            <div class="btn-group">
+                <button class="btn btn-danger dropdown-toggle" data-bs-toggle="dropdown">Export PDF</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="/barang-hilang/export?type=all"target="_blank">Semua Data</a></li>
+                    <li><a class="dropdown-item"href="/barang-hilang/export?type=hari"target="_blank">Hari Ini</a></li>
+                    <li><a class="dropdown-item"href="/barang-hilang/export?type=minggu"target="_blank">Minggu Ini</a></li>
+                    <li><a class="dropdown-item"href="/barang-hilang/export?type=bulan"target="_blank">Bulan Ini</a></li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead class="table-dark text-center">
+
+                    <tr>
+
+                        <th>No</th>
+                        <th>Kode Produk</th>
+                        <th>Nama Produk</th>
+                        <th>Jumlah</th>
+                        <th>Keterangan</th>
+                        <th>Status</th>
+                        <th width="180">Aksi</th>
+
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    <% data.forEach((d,index)=>{ %>
+                    <tr>
+
+                        <td><%= index+1 %></td>
+
+                        <td><%= d.kode_produk %></td>
+
+                        <td><%= d.nama %></td>
+
+                        <td><%= d.jumlah %></td>
+
+                        <td><%= d.keterangan || '-' %></td>
+
+                        <td>
+
+                            <% if(d.status=='hilang'){ %>
+                                <span class="badge badge-hilang">
+                                    Hilang
+                                </span>
+                            <% } else { %>
+                                <span class="badge badge-ketemu">
+                                    Ditemukan
+                                </span>
+                            <% } %>
+
+                        </td>
+
+                        <td class="text-center">
+
+                            <% if(d.status=='hilang'){ %>
+                                <form action="/barang-hilang/<%= d.id %>/ditemukan" method="POST">
+                                    <button type="submit" class="btn btn-success btn-sm">Sudah Ketemu</button>
+                                </form>
+                            <% } else { %>
+                                <span class="text-success fw-bold">Selesai</span>
+                            <% } %>
+
+                        </td>
+                    </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<script>
+
+$(document).ready(function(){
+
+    $('.produk-select').select2({
+        placeholder: 'Ketik kode produk atau nama produk...',
+        allowClear: true,
+        width: '100%'
+    });
+
+});
+
+</script>
+
+</body>
+</html>
