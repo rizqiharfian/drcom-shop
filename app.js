@@ -2376,17 +2376,22 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
         p.kode_produk,
         p.nama,
         p.posisi,
+        p.keterangan,
         p.harga_modal,
         p.harga_jual,
 
-        COALESCE(sc.jumlah,0)
-        AS stok_semarang
+        COALESCE(sc.jumlah,0) AS stok_semarang,
+        COALESCE(sj.jumlah,0) AS stok_jakarta
 
       FROM produk p
 
       LEFT JOIN stock_cabang sc
         ON sc.produk_id = p.id
         AND sc.cabang_id = 2
+
+      LEFT JOIN stock_cabang sj
+        ON sj.produk_id = p.id
+        AND sj.cabang_id = 1
 
       WHERE COALESCE(sc.jumlah,0) > 0
 
@@ -2473,9 +2478,10 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       no: 20,
       kode: 60,
       produk: 130,
-      stok: 500,
-      hargaModal: 580,
-      hargaJual: 700
+      stok: 380,
+      keterangan: 440,
+      // hargaModal: 550,
+      // hargaJual: 660
     };
 
     function drawHeader() {
@@ -2487,26 +2493,27 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       doc.text('Kode', col.kode, y);
       doc.text('Produk', col.produk, y);
       doc.text('Stok', col.stok, y);
+      doc.text('Keterangan', col.keterangan, y);
 
-      doc.text(
-        'Harga Modal',
-        col.hargaModal,
-        y,
-        {
-          width: 100,
-          align: 'right'
-        }
-      );
+      // doc.text(
+      //   'Harga Modal',
+      //   col.hargaModal,
+      //   y,
+      //   {
+      //     width: 90,
+      //     align: 'right'
+      //   }
+      // );
 
-      doc.text(
-        'Harga Jual',
-        col.hargaJual,
-        y,
-        {
-          width: 100,
-          align: 'right'
-        }
-      );
+      // doc.text(
+      //   'Harga Jual',
+      //   col.hargaJual,
+      //   y,
+      //   {
+      //     width: 90,
+      //     align: 'right'
+      //   }
+      // );
 
       y += 20;
 
@@ -2550,19 +2557,25 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       totalJual += nilaiJual;
 
       // hitung tinggi teks nama produk
-      const tinggiProduk =
-        doc.heightOfString(
-          item.nama || '-',
-          {
-            width: 220
-          }
-        );
+      const tinggiProduk = doc.heightOfString(
+        item.nama || '-',
+        {
+          width: 230
+        }
+      );
 
-      const rowHeight =
-        Math.max(
-          tinggiProduk,
-          18
-        ) + 8;
+      const tinggiKeterangan = doc.heightOfString(
+        item.keterangan || '-',
+        {
+          width: 200
+        }
+      );
+
+      const rowHeight = Math.max(
+        tinggiProduk,
+        tinggiKeterangan,
+        18
+      ) + 10;
 
       // pindah halaman jika hampir habis
       if (y + rowHeight > 540) {
@@ -2602,6 +2615,15 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
         y
       );
 
+      doc.text(
+        item.keterangan || '-',
+        col.keterangan,
+        y,
+        {
+          width: 200
+        }
+      );
+
       // doc.text(
       //   'Rp ' +
       //   modal.toLocaleString('id-ID'),
@@ -2616,25 +2638,25 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       //   y
       // );
 
-      doc.text(
-        'Rp ' + modal.toLocaleString('id-ID'),
-        col.hargaModal,
-        y,
-        {
-          width: 100,
-          align: 'right'
-        }
-      );
+      // doc.text(
+      //   'Rp ' + modal.toLocaleString('id-ID'),
+      //   col.hargaModal,
+      //   y,
+      //   {
+      //     width: 90,
+      //     align: 'right'
+      //   }
+      // );
 
-      doc.text(
-        'Rp ' + jual.toLocaleString('id-ID'),
-        col.hargaJual,
-        y,
-        {
-          width: 100,
-          align: 'right'
-        }
-      );
+      // doc.text(
+      //   'Rp ' + jual.toLocaleString('id-ID'),
+      //   col.hargaJual,
+      //   y,
+      //   {
+      //     width: 90,
+      //     align: 'right'
+      //   }
+      // );
 
       // garis bawah tiap row
       doc.moveTo(20, y + rowHeight - 3)
@@ -6468,10 +6490,10 @@ app.get('/export/sparepart/pdf', async (req, res) => {
     doc.text('Kode', 60, y);
     doc.text('Nama', 120, y);
     doc.text('Kategori', 320, y);
-    doc.text('Modal', 420, y);
-    doc.text('Jual', 520, y);
-    doc.text('Stok', 620, y);
-    doc.text('Posisi', 680, y);
+    // doc.text('Modal', 420, y);
+    // doc.text('Jual', 520, y);
+    doc.text('Stok', 500, y);
+    doc.text('Posisi', 560, y);
 
     y += 20;
 
@@ -6521,31 +6543,31 @@ app.get('/export/sparepart/pdf', async (req, res) => {
         }
       );
 
-      doc.text(
-        Number(
-          sp.harga_modal || 0
-        ).toLocaleString('id-ID'),
-        420,
-        y
-      );
+      // doc.text(
+      //   Number(
+      //     sp.harga_modal || 0
+      //   ).toLocaleString('id-ID'),
+      //   420,
+      //   y
+      // );
 
-      doc.text(
-        Number(
-          sp.harga_jual || 0
-        ).toLocaleString('id-ID'),
-        520,
-        y
-      );
+      // doc.text(
+      //   Number(
+      //     sp.harga_jual || 0
+      //   ).toLocaleString('id-ID'),
+      //   520,
+      //   y
+      // );
 
       doc.text(
         sp.stok || 0,
-        620,
+        500,
         y
       );
 
       doc.text(
         sp.posisi || '-',
-        680,
+        560,
         y
       );
 
