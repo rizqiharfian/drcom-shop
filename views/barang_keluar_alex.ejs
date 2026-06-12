@@ -227,87 +227,27 @@
     </div>
 
     <div class="card-body table-responsive">
-
         <div class="d-flex justify-content-end mb-3">
-
             <div class="btn-group">
-
-                <button
-                    class="btn btn-danger dropdown-toggle"
-                    data-bs-toggle="dropdown">
-
-                    Export PDF
-
-                </button>
+                <button class="btn btn-danger dropdown-toggle"data-bs-toggle="dropdown">Export PDF</button>
 
                 <ul class="dropdown-menu dropdown-menu-end">
 
-                    <li>
-                        <a class="dropdown-item"
-                        href="/export/barang-keluar-alex">
-                        Semua Data
-                        </a>
-                    </li>
-
-                    <li>
-                        <a class="dropdown-item"
-                        onclick="exportHari()"
-                        href="#">
-                        Hari Ini
-                        </a>
-                    </li>
-
-                    <li>
-                        <a class="dropdown-item"
-                        onclick="exportMinggu()"
-                        href="#">
-                        Minggu Ini
-                        </a>
-                    </li>
-
-                    <li>
-                        <a class="dropdown-item"
-                        onclick="exportBulan()"
-                        href="#">
-                        Bulan Ini
-                        </a>
-                    </li>
-
-                    <li>
-                        <hr class="dropdown-divider">
-                    </li>
+                    <li><a class="dropdown-item"href="/export/barang-keluar-alex">Semua Data</a></li>
+                    <li><a class="dropdown-item"onclick="exportHari()"href="#">Hari Ini</a></li>
+                    <li><a class="dropdown-item"onclick="exportMinggu()"href="#">Minggu Ini</a></li>
+                    <li><a class="dropdown-item"onclick="exportBulan()"href="#">Bulan Ini</a></li>
+                    <li><hr class="dropdown-divider"></li>
 
                     <li class="px-3">
-
                         <label>Dari</label>
-
-                        <input
-                            type="date"
-                            id="tglAwal"
-                            class="form-control form-control-sm mb-2">
-
+                        <input type="date"id="tglAwal"class="form-control form-control-sm mb-2">
                         <label>Sampai</label>
-
-                        <input
-                            type="date"
-                            id="tglAkhir"
-                            class="form-control form-control-sm mb-2">
-
-                        <button
-                            type="button"
-                            class="btn btn-primary btn-sm w-100"
-                            onclick="exportCustom()">
-
-                            Export
-
-                        </button>
-
+                        <input type="date"id="tglAkhir"class="form-control form-control-sm mb-2">
+                        <button type="button"class="btn btn-primary btn-sm w-100"onclick="exportCustom()">Export</button>
                     </li>
-
                 </ul>
-
             </div>
-
         </div>
       <table class="table table-bordered table-hover align-middle">
 
@@ -335,15 +275,10 @@
           <tr>
 
             <td><%= index+1 %></td>
-
             <td><%= d.tujuan %></td>
-
             <td><%= d.nama_produk %></td>
-
             <td><%= d.jumlah %></td>
-
             <td><%= d.keterangan || '-' %></td>
-
             <td><% if(d.status=='pending'){ %>
                 <span class="badge badge-pending">
                   Pending
