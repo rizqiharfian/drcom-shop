@@ -2535,11 +2535,14 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
 
     let totalModal = 0;
     let totalJual = 0;
+    let totalUnit = 0;
 
     rows.forEach((item, index) => {
 
       const stok =
-        Number(item.stok_semarang || 0);
+      Number(item.stok_semarang || 0);
+
+    totalUnit += stok;
 
       const modal =
         Number(item.harga_modal || 0);
@@ -2672,14 +2675,41 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
     // TOTAL
     // =================================
 
-    y += 15;
+    const footerY = y + 20;
 
-    doc.moveTo(20, y)
-       .lineTo(820, y)
-       .strokeColor('#000000')
-       .stroke();
+    // garis pemisah
+    doc.moveTo(20, footerY)
+      .lineTo(820, footerY)
+      .strokeColor('#000')
+      .stroke();
 
-    y += 15;
+    // reset posisi ke kiri
+    let summaryY = footerY + 15;
+
+    doc.font('Helvetica-Bold');
+    doc.fontSize(11);
+
+    doc.text(
+      `TOTAL JENIS PRODUK : ${rows.length} Produk`,
+      20,
+      summaryY
+    );
+
+    summaryY += 25;
+
+    doc.text(
+      `TOTAL UNIT STOK SEMARANG : ${totalUnit} Unit`,
+      20,
+      summaryY
+    );
+
+    summaryY += 25;
+
+    doc.text(
+      `Tanggal Cetak : ${new Date().toLocaleString('id-ID')}`,
+      20,
+      summaryY
+    );
 
     // doc.font('Helvetica-Bold');
     // doc.fontSize(11);
@@ -2704,6 +2734,47 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
     //     totalJual - totalModal
     //   ).toLocaleString('id-ID')
     // );
+
+    // tanda tangan kanan
+    const ttdY = footerY + 30;
+
+    doc.font('Helvetica');
+
+    doc.text(
+      'Mengetahui,',
+      510,
+      ttdY
+    );
+
+    doc.text(
+      'Penerima,',
+      685,
+      ttdY
+    );
+
+    doc.text(
+      '(Deny Irawan)',
+      510,
+      ttdY + 60
+    );
+
+    doc.text(
+      '(....................)',
+      680,
+      ttdY + 60
+    );
+
+    doc.text(
+      'Pengirim,',
+      600,
+      ttdY + 90
+    );
+
+    doc.text(
+      '(Tian Saputra)',
+      595,
+      ttdY + 150
+    );
 
     doc.end();
 
