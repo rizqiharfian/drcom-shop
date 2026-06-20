@@ -2735,46 +2735,49 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
     //   ).toLocaleString('id-ID')
     // );
 
-    // tanda tangan kanan
-    const ttdY = footerY + 30;
+    // =================================
+    // TANDA TANGAN 4 KOLOM
+    // =================================
 
-    doc.font('Helvetica');
+    // const ttdY = footerY + 120;
 
-    doc.text(
-      'Mengetahui,',
-      510,
-      ttdY
-    );
+    // doc.font('Helvetica');
 
-    doc.text(
-      'Penerima,',
-      685,
-      ttdY
-    );
+    // // posisi kolom
+    // const col1 = 360; // Mengetahui
+    // const col2 = 500; // Penerima
+    // const col3 = 640; // Pengirim
+    // const col4 = 760; // Kurir
 
-    doc.text(
-      '(Deny Irawan)',
-      510,
-      ttdY + 60
-    );
+    // // Judul
+    // doc.text('Mengetahui,', col1, ttdY);
+    // doc.text('Penerima,', col2, ttdY);
+    // doc.text('Pengirim,', col3, ttdY);
+    // doc.text('Kurir,', col4, ttdY);
 
-    doc.text(
-      '(....................)',
-      680,
-      ttdY + 60
-    );
+    // // ruang tanda tangan
+    // const namaY = ttdY + 70;
 
-    doc.text(
-      'Pengirim,',
-      600,
-      ttdY + 90
-    );
+    // // Nama
+    // doc.text('(Deny Irawan)', col1 - 10, namaY);
 
-    doc.text(
-      '(Tian Saputra)',
-      595,
-      ttdY + 150
-    );
+    // doc.text(
+    //   '(....................)',
+    //   col2 - 15,
+    //   namaY
+    // );
+
+    // doc.text(
+    //   '(Tian Saputra)',
+    //   col3 - 10,
+    //   namaY
+    // );
+
+    // doc.text(
+    //   '(....................)',
+    //   col4 - 15,
+    //   namaY
+    // );
 
     doc.end();
 
@@ -5729,7 +5732,10 @@ app.get('/barang-keluar-alex', async (req, res) => {
       ORDER BY
         CASE
           WHEN a.status = 'pending' THEN 0
-          ELSE 1
+          WHEN a.status = 'masuk_stok' THEN 1
+          WHEN a.status = 'beres' THEN 2
+          WHEN a.status = 'cancel' THEN 3
+          ELSE 4
         END,
         a.created_at DESC
     `);
@@ -6037,6 +6043,34 @@ app.post('/barang-keluar-alex/:id/beres', async (req, res) => {
 });
 
 // ======================================================
+// CANCEL
+// ======================================================
+
+app.post('/barang-keluar-alex/:id/cancel', async (req, res) => {
+
+  try {
+
+    const id = req.params.id;
+
+    await q(`
+      UPDATE barang_alex_keluar
+      SET status = 'cancel'
+      WHERE id = ?
+    `, [id]);
+
+    res.redirect('/barang-keluar-alex');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send('Gagal cancel data');
+
+  }
+
+});
+
+// ======================================================
 // EXPORT PDF BARANG KELUAR ALEX
 // ======================================================
 
@@ -6068,7 +6102,14 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
       LEFT JOIN produk p
         ON p.id = a.produk_id
       ${where}
-      ORDER BY a.created_at DESC
+      ORDER BY
+      CASE
+        WHEN a.status = 'pending' THEN 0
+        WHEN a.status = 'masuk_stok' THEN 1
+        WHEN a.status = 'beres' THEN 2
+        ELSE 3
+      END,
+      a.created_at DESC
     `, params);
 
     const doc = new PDFDocument({
@@ -6159,9 +6200,9 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
     doc.text('No', 25, y + 6);
     doc.text('Tujuan', 55, y + 6);
     doc.text('Produk', 180, y + 6);
-    doc.text('Qty', 370, y + 6);
-    doc.text('Status', 430, y + 6);
-    doc.text('Tanggal', 520, y + 6);
+    doc.text('Qty', 500, y + 6);
+    doc.text('Status', 560, y + 6);
+    doc.text('Tanggal', 650, y + 6);
 
     y += rowHeight;
 
@@ -6171,76 +6212,101 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
     rows.forEach((r, index) => {
 
-      if (y > 520) {
+    const namaProduk =
+      r.nama_produk ||
+      r.nama_barang ||
+      '-';
 
-        doc.addPage();
-
-        y = 40;
-
-        doc.rect(20, y, 780, rowHeight).stroke();
-
-        doc.text('No', 25, y + 6);
-        doc.text('Tujuan', 55, y + 6);
-        doc.text('Produk', 180, y + 6);
-        doc.text('Qty', 370, y + 6);
-        doc.text('Status', 430, y + 6);
-        doc.text('Tanggal', 520, y + 6);
-
-        y += rowHeight;
-
+    // hitung tinggi teks produk
+    const tinggiProduk = doc.heightOfString(
+      namaProduk,
+      {
+        width: 280
       }
+    );
 
-      doc.rect(20, y, 780, rowHeight).stroke();
+    // tinggi row otomatis
+    const currentRowHeight =
+      Math.max(
+        tinggiProduk,
+        18
+      ) + 10;
 
-      doc.text(
-        String(index + 1),
-        25,
-        y + 6
-      );
+    // pindah halaman jika hampir habis
+    if (y + currentRowHeight > 540) {
 
-      doc.text(
-        r.tujuan || '-',
-        55,
-        y + 6,
-        {
-          width: 110
-        }
-      );
+      doc.addPage();
 
-      doc.text(
-        r.nama_produk ||
-        r.nama_barang ||
-        '-',
-        180,
-        y + 6,
-        {
-          width: 170
-        }
-      );
+      y = 40;
 
-      doc.text(
-        String(r.jumlah || 0),
-        370,
-        y + 6
-      );
+      doc.rect(20, y, 780, 22).stroke();
 
-      doc.text(
-        r.status || '-',
-        430,
-        y + 6
-      );
+      doc.text('No',25,y+6);
+      doc.text('Tujuan',55,y+6);
+      doc.text('Produk',180,y+6);
+      doc.text('Qty',500,y+6);
+      doc.text('Status',560,y+6);
+      doc.text('Tanggal',650,y+6);
 
-      doc.text(
-        new Date(
-          r.created_at
-        ).toLocaleDateString('id-ID'),
-        520,
-        y + 6
-      );
+      y += 22;
 
-      y += rowHeight;
+    }
 
-    });
+    // garis row
+    doc.rect(
+      20,
+      y,
+      780,
+      currentRowHeight
+    ).stroke();
+
+    doc.text(
+      String(index + 1),
+      25,
+      y + 5
+    );
+
+    doc.text(
+      r.tujuan || '-',
+      55,
+      y + 5,
+      {
+        width: 110
+      }
+    );
+
+    doc.text(
+      namaProduk,
+      180,
+      y + 5,
+      {
+        width: 300
+      }
+    );
+
+    doc.text(
+      String(r.jumlah || 0),
+      500,
+      y + 5
+    );
+
+    doc.text(
+      r.status || '-',
+      560,
+      y + 5
+    );
+
+    doc.text(
+      new Date(
+        r.created_at
+      ).toLocaleDateString('id-ID'),
+      650,
+      y + 5
+    );
+
+    y += currentRowHeight;
+
+  });
 
     // =====================================
     // FOOTER
@@ -6249,7 +6315,7 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
     doc.moveDown(2);
 
     doc.text(
-      `Dicetak oleh Sistem Inventori DR.COM`,
+      `Dicetak oleh Admin DR.COM`,
       {
         align: 'right'
       }

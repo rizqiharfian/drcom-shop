@@ -35,6 +35,10 @@
     .badge-beres{
       background:#198754;
     }
+
+    .badge-cancel{
+      background:#6c757d;
+    }
   </style>
 </head>
 <body>
@@ -302,6 +306,14 @@
 
               <% } %>
 
+              <% if(d.status=='cancel'){ %>
+
+                <span class="badge badge-cancel">
+                  Cancel
+                </span>
+
+              <% } %>
+
             </td>
 
             <td>
@@ -322,12 +334,19 @@
                     <button type="submit" class="btn btn-success btn-sm">
                         Beres
                     </button>
+                    </form>
 
+                    <form action="/barang-keluar-alex/<%= d.id %>/cancel" method="POST" style="display:inline;" onsubmit="return confirm('Yakin ingin membatalkan data ini?');">
+                      <button type="submit" class="btn btn-secondary btn-sm">
+                        Cancel
+                      </button>
                     </form>
                 <% } else { %>
-                    <span class="text-success fw-bold">
-                    Selesai
-                    </span>
+                  <% if(d.status=='masuk_stok'){ %> <span class="text-primary fw-bold">Masuk Stok</span><% } %>
+
+                  <% if(d.status=='beres'){ %><span class="text-success fw-bold">Beres</span><% } %>
+
+                  <% if(d.status=='cancel'){ %><span class="text-secondary fw-bold">Cancel</span><% } %>
                 <% } %>
             </td>
 
