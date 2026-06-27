@@ -68,24 +68,10 @@
         </div>
 
     <div>
-
-      <a href="/stok/jakarta" class="btn btn-primary me-2">
-        Cabang Jakarta
-      </a>
-
-      <a href="/produk" class="btn btn-warning me-2">
-        Semua Stok Pusat
-      </a>
-
-      <a href="/stok/semarang/export-pdf"
-        class="btn btn-danger me-2">
-        Export PDF
-      </a>
-
-      <a href="/" class="btn btn-secondary">
-        Kembali
-      </a>
-
+      <a href="/stok/jakarta" class="btn btn-primary me-2">Cabang Jakarta</a>
+      <a href="/produk" class="btn btn-warning me-2">Semua Stok Pusat</a>
+      <a href="/stok/semarang/export-pdf" class="btn btn-danger me-2">Export PDF</a>
+      <a href="/" class="btn btn-secondary">Kembali</a>
     </div>
 
   </div>
@@ -105,6 +91,7 @@
             <!-- <th>Harga Modal</th> -->
             <th>Stok Semarang</th>
             <th>Status</th>
+            <th width="220">Aksi</th>
           </tr>
 
         </thead>
@@ -114,71 +101,45 @@
           <% produk.forEach((p, index) => { %>
 
             <tr class="produk-row"
-    data-nama="<%= (p.nama || '').toLowerCase() %>"
-    data-kode="<%= (p.kode_produk || '').toLowerCase() %>">
+              data-nama="<%= (p.nama || '').toLowerCase() %>"
+              data-kode="<%= (p.kode_produk || '').toLowerCase() %>">
 
               <td class="text-center">
                 <%= index + 1 %>
               </td>
-
-              <td>
-                <%= p.kode_produk || '-' %>
-              </td>
-
-              <td>
-                <%= p.nama || '-' %>
-              </td>
+              <td><%= p.kode_produk || '-' %></td>
+              <td><%= p.nama || '-' %></td>
 
               <!-- <td class="harga-modal">
                 Rp <%= Number(p.harga_modal || 0).toLocaleString('id-ID') %>
               </td> -->
 
               <td class="text-center">
-
                 <% if (p.stok_semarang <= 0) { %>
-
-                  <span class="badge bg-danger">
-                    0
-                  </span>
-
+                  <span class="badge bg-danger">0</span>
                 <% } else if (p.stok_semarang <= 2) { %>
-
-                  <span class="badge bg-warning text-dark">
-                    <%= p.stok_semarang %>
-                  </span>
-
+                  <span class="badge bg-warning text-dark"><%= p.stok_semarang %></span>
                 <% } else { %>
-
-                  <span class="badge bg-success">
-                    <%= p.stok_semarang %>
-                  </span>
-
+                  <span class="badge bg-success"><%= p.stok_semarang %></span>
                 <% } %>
-
               </td>
 
               <td class="text-center">
-
                 <% if (p.stok_semarang <= 0) { %>
-
-                  <span class="badge bg-danger">
-                    Sold Out
-                  </span>
-
+                  <span class="badge bg-danger">Sold Out</span>
                 <% } else if (p.stok_semarang <= 2) { %>
-
-                  <span class="badge bg-warning text-dark">
-                    Hampir Habis
-                  </span>
-
+                  <span class="badge bg-warning text-dark">Hampir Habis</span>
                 <% } else { %>
-
-                  <span class="badge bg-success">
-                    Aman
-                  </span>
-
+                  <span class="badge bg-success">Aman</span>
                 <% } %>
+              </td>
 
+              <td class="text-center">
+                <a href="/stok-semarang/lihat/<%= p.id %>" class="btn btn-info btn-sm">Lihat</a>
+                <a href="/stok-semarang/edit/<%= p.id %>" class="btn btn-warning btn-sm">Edit</a>
+                <form action="/stok-semarang/hapus/<%= p.id %>" method="POST" style="display:inline;" onsubmit="return confirm('Yakin hapus produk ini?')">
+                  <button type="submit" class="btn btn-danger btn-sm">Hapus</button>
+                </form>
               </td>
 
             </tr>

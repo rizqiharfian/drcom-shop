@@ -116,6 +116,18 @@ app.get('/', async (req, res) => {
 
     const produkRaw = await q(sqlProduk);
 
+    const seller = await q(`
+      SELECT *
+      FROM seller
+      ORDER BY nama_seller ASC
+    `);
+
+    const toko = await q(`
+      SELECT *
+      FROM seller_toko
+      ORDER BY nama_toko ASC
+    `);
+
     // ======================================================
     // BUAT NOMOR PRODUK DINAMIS
     // ======================================================
@@ -150,7 +162,27 @@ app.get('/', async (req, res) => {
     });
 
     // Pembelian (riwayat)
-    const pembelian = await q('SELECT * FROM pembelian ORDER BY tanggal DESC');
+    const pembelian = await q(`
+      SELECT
+        pb.*,
+        s.nama_seller,
+        t.nama_toko
+
+      FROM pembelian pb
+
+      LEFT JOIN seller s
+        ON s.id = pb.seller_id
+
+      LEFT JOIN seller_toko t
+        ON t.id = pb.toko_id
+
+      ORDER BY
+      CASE
+        WHEN status = 2 THEN 0
+        WHEN status = 1 THEN 1
+        WHEN status = 3 THEN 2
+      END, tanggal DESC
+    `);
 
     // Riwayat barang masuk (ambil bm.tanggal AS created_at supaya view tidak berubah)
     const rowsBM = await q(`
@@ -191,6 +223,7 @@ rowsBK.forEach(r => {
     status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
   });
   });
+
   // ======================
   // BARANG KELUAR ALEX
   // ======================
@@ -230,7 +263,9 @@ const barangHilang = await q(`
       barangMasukList: listBarangMasuk,
       barangKeluarList: listBarangKeluar,
       barangKeluarAlexList,
-      barangHilang
+      barangHilang,
+      seller,
+      toko
     });
   } catch (err) {
     console.error('GET / error:', err);
@@ -632,6 +667,177 @@ app.get('/barang-hilang/export', async (req,res)=>{
 
 });
 
+// =====================================
+// HALAMAN SELLER
+// =====================================
+
+app.get('/seller', async(req,res)=>{
+
+  try{
+
+    const seller = await q(`
+      SELECT *
+      FROM seller
+      ORDER BY nama_seller ASC
+    `);
+
+    const toko = await q(`
+      SELECT
+        st.*,
+        s.nama_seller
+
+      FROM seller_toko st
+
+      LEFT JOIN seller s
+        ON s.id = st.seller_id
+
+      ORDER BY
+        s.nama_seller ASC,
+        st.nama_toko ASC
+    `);
+
+    res.render('seller',{
+      seller,
+      toko
+    });
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal load seller');
+
+  }
+
+});
+
+// =====================================
+// TAMBAH SELLER
+// =====================================
+
+app.post('/seller/tambah', async(req,res)=>{
+
+  try{
+
+    await q(`
+      INSERT INTO seller
+      (
+        nama_seller
+      )
+      VALUES (?)
+    `,[
+      req.body.nama_seller
+    ]);
+
+    res.redirect('/seller');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal tambah seller');
+
+  }
+
+});
+
+// =====================================
+// TAMBAH TOKO SELLER
+// =====================================
+
+app.post('/seller/toko/tambah', async(req,res)=>{
+
+  try{
+
+    await q(`
+      INSERT INTO seller_toko
+      (
+        seller_id,
+        nama_toko
+      )
+      VALUES (?,?)
+    `,[
+      req.body.seller_id,
+      req.body.nama_toko
+    ]);
+
+    res.redirect('/seller');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal tambah toko');
+
+  }
+
+});
+
+app.post('/seller/:id/hapus', async(req,res)=>{
+
+  try{
+
+    await q(`
+      DELETE FROM seller
+      WHERE id=?
+    `,[req.params.id]);
+
+    res.redirect('/seller');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal hapus seller');
+
+  }
+
+});
+
+app.post('/seller/toko/:id/hapus', async(req,res)=>{
+
+  try{
+
+    await q(`
+      DELETE FROM seller_toko
+      WHERE id=?
+    `,[req.params.id]);
+
+    res.redirect('/seller');
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).send('Gagal hapus toko');
+
+  }
+
+});
+
+app.get('/seller/:id/toko', async(req,res)=>{
+
+  try{
+
+    const rows = await q(`
+      SELECT *
+      FROM seller_toko
+      WHERE seller_id=?
+      ORDER BY nama_toko ASC
+    `,[req.params.id]);
+
+    res.json(rows);
+
+  }catch(err){
+
+    console.error(err);
+
+    res.status(500).json([]);
+
+  }
+
+});
+
 // ---------- PEMBELIAN PRODUK (create as PENDING) ----------
 // ==========================================
 // HALAMAN FORM PEMBELIAN
@@ -692,6 +898,18 @@ app.get('/beli', async (req, res) => {
       ) ASC
     `);
 
+    const seller = await q(`
+      SELECT *
+      FROM seller
+      ORDER BY nama_seller ASC
+    `);
+
+    const toko = await q(`
+      SELECT *
+      FROM seller_toko
+      ORDER BY nama_toko ASC
+    `);
+
     // ======================================
     // BUAT NOMOR URUT AKTIF
     // ======================================
@@ -726,7 +944,9 @@ app.get('/beli', async (req, res) => {
     });
 
     res.render('beli', {
-      produk
+      produk,
+      seller,
+      toko
     });
 
   } catch (err) {
@@ -754,7 +974,8 @@ app.post('/beli', async (req, res) => {
 
     const {
 
-      customer,
+      seller_id,
+      toko_id,
       produk_id,
       jumlah,
       harga,
@@ -769,7 +990,8 @@ app.post('/beli', async (req, res) => {
     // ==============================
 
     if (
-      !customer ||
+      !seller_id ||
+      !toko_id ||
       !produk_id ||
       !jumlah ||
       !harga ||
@@ -827,7 +1049,8 @@ app.post('/beli', async (req, res) => {
     await q(`
       INSERT INTO pembelian
       (
-        customer,
+        seller_id,
+        toko_id,
         produk_id,
         jumlah,
         harga,
@@ -839,11 +1062,12 @@ app.post('/beli', async (req, res) => {
       )
       VALUES
       (
-        ?, ?, ?, ?, ?, ?, ?, 2, NOW()
+        ?, ?, ?, ?, ?, ?, ?, ?, 2, NOW()
       )
     `, [
 
-      customer,
+      seller_id,
+      toko_id,
       pid,
       qty,
       harga,
@@ -1225,28 +1449,67 @@ app.post('/pembelian/complete/:id', async (req, res) => {
 // ---------- CANCEL PEMBELIAN ----------
 app.post('/cancel/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.redirect('/');
 
-    const rows = await q('SELECT * FROM pembelian WHERE id = ? LIMIT 1', [id]);
-    if (!rows || rows.length === 0) return res.redirect('/');
+    const id = parseInt(req.params.id);
 
-    const pembelian = rows[0];
+    const rows = await q(`
+      SELECT *
+      FROM pembelian
+      WHERE id = ?
+      LIMIT 1
+    `,[id]);
+
+    if(!rows.length){
+      return res.redirect('/');
+    }
+
+    const pb = rows[0];
 
     await beginTransaction();
-    if (pembelian.status === 1) {
-      // already completed -> restore stock
-      await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [pembelian.jumlah, pembelian.produk_id]);
+
+    // jika sebelumnya selesai
+    // stok dikembalikan
+    if(pb.status == 1){
+
+      await q(`
+        INSERT INTO stock_cabang
+        (
+          produk_id,
+          cabang_id,
+          jumlah
+        )
+        VALUES (?, ?, ?)
+
+        ON DUPLICATE KEY UPDATE
+
+        jumlah = jumlah + VALUES(jumlah)
+      `,[
+        pb.produk_id,
+        pb.cabang_id,
+        pb.jumlah
+      ]);
+
     }
-    // delete pembelian
-    await q('DELETE FROM pembelian WHERE id = ?', [id]);
+
+    await q(`
+      UPDATE pembelian
+      SET status = 3
+      WHERE id = ?
+    `,[id]);
+
     await commit();
 
-    return res.redirect('/');
-  } catch (err) {
-    console.error('POST /cancel error:', err);
-    try { await rollback(); } catch(_) {}
-    return res.status(500).send('Gagal membatalkan pembelian.');
+    res.redirect('/');
+
+  } catch(err){
+
+    console.error(err);
+
+    try{
+      await rollback();
+    }catch(e){}
+
+    res.status(500).send('Gagal cancel pembelian');
   }
 });
 
@@ -1274,7 +1537,7 @@ const upload = multer({ storage });
 app.get('/export/pembelian/pdf', async (req, res) => {
   try {
 
-    const { start, end } = req.query;
+    const { start, end, status, seller_id } = req.query;
 
     if (!start || !end) {
       return res
@@ -1282,8 +1545,47 @@ app.get('/export/pembelian/pdf', async (req, res) => {
         .send('Parameter tanggal wajib.');
     }
 
+    // ======================================
+    // FILTER DINAMIS
+    // ======================================
+
+    let where = `
+      WHERE DATE(p.tanggal) BETWEEN ? AND ?
+    `;
+
+    const params = [start, end];
+
+    // status
+    if (
+      status &&
+      status !== 'all'
+    ) {
+
+      where += `
+        AND p.status = ?
+      `;
+
+      params.push(
+        parseInt(status)
+      );
+
+    }
+
+    // seller
+    if ( seller_id && seller_id !== 'all' ) { where += ` AND p.seller_id = ? `;
+      params.push(
+        parseInt(seller_id)
+      );
+
+    }
+
+    // ======================================
+    // QUERY
+    // ======================================
+
     const sql = `
-      SELECT 
+      SELECT
+
         p.id,
         p.customer,
         p.jumlah,
@@ -1292,15 +1594,27 @@ app.get('/export/pembelian/pdf', async (req, res) => {
         p.keterangan,
         p.tanggal,
         p.status,
+
+        p.seller_id,
+
+        s.nama_seller,
+
         pr.nama AS produk_nama
+
       FROM pembelian p
+
       LEFT JOIN produk pr
         ON pr.id = p.produk_id
-      WHERE DATE(p.tanggal) BETWEEN ? AND ?
+
+      LEFT JOIN seller s
+        ON s.id = p.seller_id
+
+      ${where}
+
       ORDER BY p.tanggal DESC
     `;
 
-    const rows = await q(sql, [start, end]);
+    const rows = await q( sql, params );
 
     const PDFDocument = require('pdfkit');
 
@@ -1476,10 +1790,20 @@ app.get('/export/pembelian/pdf', async (req, res) => {
         drawTableHeader();
       }
 
-      const status =
-        Number(r.status) === 1
-          ? 'Selesai'
-          : 'Pending';
+      let statusText = 'Pending';
+
+        if (Number(r.status) === 1) {
+
+          statusText = 'Selesai';
+
+        }
+        else if (
+          Number(r.status) === 3
+        ) {
+
+          statusText = 'Cancel';
+
+        }
 
       const tanggal =
         r.tanggal
@@ -1550,7 +1874,7 @@ app.get('/export/pembelian/pdf', async (req, res) => {
       // SELLER
       // =============================
       doc.text(
-        r.customer || '-',
+        r.nama_seller || '-',
         x,
         textY,
         {
@@ -1668,14 +1992,26 @@ app.get('/export/pembelian/pdf', async (req, res) => {
       // =============================
       // STATUS
       // =============================
-      doc.fillColor(
-        status === 'Selesai'
-          ? 'green'
-          : 'red'
-      );
+      if (statusText === 'Selesai') {
+
+        doc.fillColor('green');
+
+      }
+      else if (
+        statusText === 'Cancel'
+      ) {
+
+        doc.fillColor('orange');
+
+      }
+      else {
+
+        doc.fillColor('red');
+
+      }
 
       doc.text(
-        status,
+        statusText,
         x,
         textY,
         {
@@ -1996,8 +2332,8 @@ app.post('/produk/import-excel', uploadExcel.single('excel'), async (req, res) =
 
           // update stok
           await q(`
-            INSERT INTO stock (produk_id, jumlah)
-            VALUES (?, ?)
+            INSERT INTO stock_cabang (produk_id, cabang_id, jumlah)
+            VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE
             jumlah = jumlah + VALUES(jumlah)
           `, [produkId, stok]);
@@ -2255,28 +2591,20 @@ app.get('/stok/semarang', async (req, res) => {
         p.gambar,
         p.keterangan,
         p.posisi,
-
         p.harga_modal,
         p.harga_jual,
 
-        sc.jumlah AS stok_semarang
+        COALESCE(sc.jumlah,0) AS stok_semarang
 
       FROM produk p
 
-      INNER JOIN stock_cabang sc
+      LEFT JOIN stock_cabang sc
         ON sc.produk_id = p.id
         AND sc.cabang_id = 2
 
-      WHERE sc.jumlah > 0
-
       ORDER BY
-        CAST(
-          REPLACE(
-            UPPER(p.kode_produk),
-            'P',
-            ''
-          ) AS UNSIGNED
-        ) ASC
+        CASE WHEN COALESCE(sc.jumlah,0) <= 0 THEN 1 ELSE 0 END,
+        CAST(REPLACE(UPPER(p.kode_produk), 'P', '') AS UNSIGNED) ASC
     `;
 
     const rows = await q(sql);
@@ -2358,6 +2686,136 @@ app.post('/stok-semarang/tambah', async (req, res) => {
 
     console.error(err);
     res.status(500).send('Gagal tambah produk semarang');
+
+  }
+
+});
+
+app.get('/stok-semarang/lihat/:id', async (req,res)=>{
+
+  try{
+
+    const rows = await q(`
+      SELECT
+        p.*,
+        COALESCE(sc.jumlah,0) AS stok_semarang
+      FROM produk p
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id = p.id
+        AND sc.cabang_id = 2
+      WHERE p.id=?
+    `,[req.params.id]);
+
+    if(!rows.length){
+      return res.send('Produk tidak ditemukan');
+    }
+
+    res.render('detail_produk_semarang',{
+      produk: rows[0]
+    });
+
+  }catch(err){
+
+    console.error(err);
+    res.status(500).send(err.message);
+
+  }
+
+});
+
+app.get('/stok-semarang/edit/:id', async (req,res)=>{
+
+  try{
+
+    const rows = await q(`
+      SELECT
+        p.*,
+        COALESCE(sc.jumlah,0) AS stok_semarang
+      FROM produk p
+      LEFT JOIN stock_cabang sc
+        ON sc.produk_id=p.id
+        AND sc.cabang_id=2
+      WHERE p.id=?
+    `,[req.params.id]);
+
+    res.render('edit_produk_semarang',{
+      produk: rows[0]
+    });
+
+  }catch(err){
+
+    console.error(err);
+    res.status(500).send(err.message);
+
+  }
+
+});
+
+app.post('/stok-semarang/edit/:id', async (req,res)=>{
+
+  try{
+
+    const {
+      kode_produk,
+      nama,
+      posisi,
+      keterangan,
+      stok_semarang
+    } = req.body;
+
+    await q(`
+      UPDATE produk
+      SET
+        kode_produk=?,
+        nama=?,
+        posisi=?,
+        keterangan=?
+      WHERE id=?
+    `,[
+      kode_produk,
+      nama,
+      posisi,
+      keterangan,
+      req.params.id
+    ]);
+
+    await q(`
+      UPDATE stock_cabang
+      SET jumlah=?
+      WHERE produk_id=?
+      AND cabang_id=2
+    `,[
+      stok_semarang,
+      req.params.id
+    ]);
+
+    res.redirect('/stok/semarang');
+
+  }catch(err){
+
+    console.error(err);
+    res.status(500).send(err.message);
+
+  }
+
+});
+
+app.post('/stok-semarang/hapus/:id', async (req,res)=>{
+
+  try{
+
+    await q(`
+      DELETE FROM stock_cabang
+      WHERE produk_id=?
+      AND cabang_id=2
+    `,[req.params.id]);
+
+    res.redirect('/stok/semarang');
+
+  }catch(err){
+
+    console.error(err);
+    res.status(500).send(err.message);
 
   }
 
@@ -2480,8 +2938,8 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       produk: 130,
       stok: 380,
       keterangan: 440,
-      // hargaModal: 550,
-      // hargaJual: 660
+      hargaModal: 550,
+      hargaJual: 660
     };
 
     function drawHeader() {
@@ -2495,25 +2953,25 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       doc.text('Stok', col.stok, y);
       doc.text('Keterangan', col.keterangan, y);
 
-      // doc.text(
-      //   'Harga Modal',
-      //   col.hargaModal,
-      //   y,
-      //   {
-      //     width: 90,
-      //     align: 'right'
-      //   }
-      // );
+      doc.text(
+        'Harga Modal',
+        col.hargaModal,
+        y,
+        {
+          width: 90,
+          align: 'right'
+        }
+      );
 
-      // doc.text(
-      //   'Harga Jual',
-      //   col.hargaJual,
-      //   y,
-      //   {
-      //     width: 90,
-      //     align: 'right'
-      //   }
-      // );
+      doc.text(
+        'Harga Jual',
+        col.hargaJual,
+        y,
+        {
+          width: 90,
+          align: 'right'
+        }
+      );
 
       y += 20;
 
@@ -2641,25 +3099,25 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
       //   y
       // );
 
-      // doc.text(
-      //   'Rp ' + modal.toLocaleString('id-ID'),
-      //   col.hargaModal,
-      //   y,
-      //   {
-      //     width: 90,
-      //     align: 'right'
-      //   }
-      // );
+      doc.text(
+        'Rp ' + modal.toLocaleString('id-ID'),
+        col.hargaModal,
+        y,
+        {
+          width: 90,
+          align: 'right'
+        }
+      );
 
-      // doc.text(
-      //   'Rp ' + jual.toLocaleString('id-ID'),
-      //   col.hargaJual,
-      //   y,
-      //   {
-      //     width: 90,
-      //     align: 'right'
-      //   }
-      // );
+      doc.text(
+        'Rp ' + jual.toLocaleString('id-ID'),
+        col.hargaJual,
+        y,
+        {
+          width: 90,
+          align: 'right'
+        }
+      );
 
       // garis bawah tiap row
       doc.moveTo(20, y + rowHeight - 3)
@@ -4249,7 +4707,13 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
     console.log('Body preview:', Object.keys(req.body).reduce((o,k)=>{ o[k]=req.body[k]; return o; }, {}));
 
     const pengirim = (req.body.pengirim || '').trim();
-    if (!pengirim) return res.status(400).send('Pengirim wajib diisi.');
+    const cabangId = parseInt(req.body.cabang_id);
+
+    if (!pengirim)
+        return res.status(400).send('Pengirim wajib diisi.');
+
+    if (!cabangId)
+        return res.status(400).send('Cabang wajib dipilih.');
 
     // Build items from arrays in req.body
     const produkArr = req.body['produk[]'] ?? req.body.produk ?? [];
@@ -4304,8 +4768,42 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
         if (rows && rows.length > 0) {
           items[i].produk_id = rows[0].id;
         } else {
-          const insP = await q('INSERT INTO produk (nama, gambar, keterangan) VALUES (?, ?, ?)', [raw, '', null]);
+          // ===============================
+          // BUAT KODE PRODUK OTOMATIS
+          // ===============================
+          const last = await q(`
+              SELECT kode_produk
+              FROM produk
+              ORDER BY
+              CAST(REPLACE(UPPER(kode_produk),'P','') AS UNSIGNED) DESC
+              LIMIT 1
+          `);
+
+          let nextKode = 'P1';
+
+          if(last.length){
+
+              const no =
+                  parseInt(
+                      last[0].kode_produk.replace(/P/i,'')
+                  ) || 0;
+
+              nextKode = 'P' + (no + 1);
+
+          }
+
+          const insP = await q(`
+              INSERT INTO produk
+              ( kode_produk, nama, gambar, keterangan ) VALUES (?, ?, ?, ?)`,[
+              nextKode, raw, '', null
+          ]);
+
           items[i].produk_id = insP.insertId;
+
+          // ===============================
+          // BUAT STOK CABANG
+          // ===============================
+          await q(`INSERT INTO stock_cabang ( produk_id, cabang_id, jumlah) VALUES (?,1,0), (?,2,0) ON DUPLICATE KEY UPDATE jumlah = jumlah`,[insP.insertId,insP.insertId]);
           console.log(`Produk baru dibuat: "${raw}" -> id ${items[i].produk_id}`);
         }
       }
@@ -4328,11 +4826,8 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
         [barangMasukId, it.produk_id, it.jumlah, it.keterangan, it.gambar_filename]
       );
 
-      // update stock (insert or add)
-      await q(
-        'INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)',
-        [it.produk_id, it.jumlah]
-      );
+      // // update stock (insert or add)
+      await q(`INSERT INTO stock_cabang(produk_id, cabang_id, jumlah) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)`,[it.produk_id,cabangId,it.jumlah]);
     }
 
     await commit();
@@ -4419,115 +4914,142 @@ app.get('/barang-masuk/:id/edit', async (req, res) => {
   }
 });
 
-// --- EDIT handler (POST) ---
 app.post('/barang-masuk/:id/edit', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).send('Invalid ID');
-
-    const pengirim = (req.body.pengirim || '').trim();
-    if (!pengirim) return res.status(400).send('Pengirim wajib diisi.');
-
-    // parse items (pakai helper yang sudah ada)
-    let incomingItems;
     try {
-      incomingItems = parseItemsFromBody(req.body); // menghasilkan [{produk_id|produk_nama, jumlah, keterangan}, ...]
-    } catch (e) {
-      return res.status(400).send('Format items invalid: ' + e.message);
-    }
-    if (!Array.isArray(incomingItems) || incomingItems.length === 0) {
-      return res.status(400).send('Tidak ada item untuk disimpan.');
-    }
 
-    // resolve produk_id (numeric) atau nama -> id (buat baru jika perlu)
-    for (let i = 0; i < incomingItems.length; i++) {
-      const raw = (incomingItems[i].produk_id ?? incomingItems[i].produk_nama ?? '').toString().trim();
-      const maybeId = parseInt(raw, 10);
-      if (Number.isInteger(maybeId) && maybeId > 0) {
-        incomingItems[i].produk_id = maybeId;
-      } else {
-        const rows = await q('SELECT id FROM produk WHERE LOWER(nama) = LOWER(?) LIMIT 1', [raw]);
-        if (rows && rows.length > 0) {
-          incomingItems[i].produk_id = rows[0].id;
-        } else {
-          const insP = await q('INSERT INTO produk (nama, gambar, keterangan) VALUES (?, ?, ?)', [raw, '', null]);
-          incomingItems[i].produk_id = insP.insertId;
+        const id = parseInt(req.params.id);
+
+        if (!id)
+            return res.status(400).send("ID tidak valid.");
+
+        const pengirim = (req.body.pengirim || "").trim();
+
+        if (!pengirim)
+            return res.status(400).send("Pengirim wajib diisi.");
+
+        let incomingItems = parseItemsFromBody(req.body);
+
+        if (!incomingItems.length)
+            return res.status(400).send("Tidak ada item.");
+
+        // ===========================
+        // MULAI TRANSAKSI
+        // ===========================
+
+        await beginTransaction();
+
+        const cabangId = 1;
+
+        // ===========================
+        // RESOLVE PRODUK
+        // ===========================
+
+        for (const item of incomingItems) {
+
+            const raw = (item.produk_id ?? item.produk_nama ?? "").toString().trim();
+
+            const maybeId = parseInt(raw);
+
+            if (Number.isInteger(maybeId) && maybeId > 0) {
+
+                item.produk_id = maybeId;
+
+            } else {
+
+                const cek = await q(`SELECT id FROM produk WHERE LOWER(nama)=LOWER(?) LIMIT 1`, [raw]);
+
+                if (cek.length) {
+
+                    item.produk_id = cek[0].id;
+
+                } else {
+
+                    const last = await q(`SELECT MAX(CAST(REPLACE(kode_produk,'P','') AS UNSIGNED)) no FROM produk`);
+                    const kode = "P" + ((last[0].no || 0) + 1);
+                    const ins = await q(`INSERT INTO produk (kode_produk, nama, gambar, keterangan) VALUES ( ?, ?, '', NULL)`, [ kode, raw ]);
+                    item.produk_id = ins.insertId;
+
+                    await q(`INSERT INTO stock_cabang (produk_id, cabang_id, jumlah) VALUES (?,1,0), (?,2,0)`,[ ins.insertId, ins.insertId ]);
+                }
+            }
+            item.jumlah =
+                parseInt(item.jumlah) || 0;
+
         }
-      }
-      incomingItems[i].jumlah = parseInt(incomingItems[i].jumlah, 10) || 0;
-      incomingItems[i].keterangan = incomingItems[i].keterangan ?? null;
-    }
 
-    // filter valid
-    incomingItems = incomingItems.filter(it => Number.isInteger(it.produk_id) && it.jumlah > 0);
-    if (incomingItems.length === 0) return res.status(400).send('Tidak ada item valid.');
+        incomingItems = incomingItems.filter(i => i.produk_id && i.jumlah > 0 );
 
-    // ambil detail lama
-    const oldRows = await q('SELECT id, produk_id, jumlah FROM barang_masuk_detail WHERE barang_masuk_id = ?', [id]);
-    // map produk_id -> total jumlah lama (bisa ada lebih dari 1 detail dengan produk yg sama)
-    const oldMap = {};
-    oldRows.forEach(r => {
-      oldMap[r.produk_id] = (oldMap[r.produk_id] || 0) + r.jumlah;
-    });
+        // ===========================
+        // DATA LAMA
+        // ===========================
+        const oldRows = await q(`SELECT produk_id, jumlah FROM barang_masuk_detail WHERE barang_masuk_id=? `,[id]);
 
-    // map produk_id -> total jumlah baru
-    const newMap = {};
-    incomingItems.forEach(it => {
-      newMap[it.produk_id] = (newMap[it.produk_id] || 0) + it.jumlah;
-    });
+        const oldMap = {};
 
-    // Start transaction
-    await beginTransaction();
+        oldRows.forEach(r=>{ oldMap[r.produk_id] = (oldMap[r.produk_id]||0) + r.jumlah;
+        });
 
-    // update header pengirim (jika berubah)
-    await q('UPDATE barang_masuk SET pengirim = ? WHERE id = ?', [pengirim, id]);
+        const newMap = {};
 
-    // delete semua detail lama (simpler) then re-insert dari incomingItems
-    // BUT sebelum delete, kita hitung pengaruhnya ke stock: we'll compute diff = new - old per produk
-    // lakukan delete detail lama
-    await q('DELETE FROM barang_masuk_detail WHERE barang_masuk_id = ?', [id]);
+        incomingItems.forEach(i=>{ newMap[i.produk_id] = (newMap[i.produk_id]||0) + i.jumlah;
+        });
 
-    // insert new details (one row per incoming item)
-    for (const it of incomingItems) {
-      await q(
-        'INSERT INTO barang_masuk_detail (barang_masuk_id, produk_id, jumlah, keterangan) VALUES (?, ?, ?, ?)',
-        [id, it.produk_id, it.jumlah, it.keterangan]
-      );
-    }
+        // ===========================
+        // UPDATE HEADER
+        // ===========================
 
-    // sekarang update stock berdasarkan selisih per produk:
-    // delta = newMap[p] - (oldMap[p] || 0)
-    const allProdukIds = Array.from(new Set([...Object.keys(oldMap), ...Object.keys(newMap)])).map(x => parseInt(x,10));
-    for (const pid of allProdukIds) {
-      const oldQty = oldMap[pid] || 0;
-      const newQty = newMap[pid] || 0;
-      const delta = newQty - oldQty; // positive -> add stock, negative -> subtract stock
-      if (delta === 0) continue;
+        await q(`UPDATE barang_masuk SET pengirim=? WHERE id=?`,[ pengirim, id ]);
 
-      if (delta > 0) {
-        // tambah stock
-        await q('INSERT INTO stock (produk_id, jumlah) VALUES (?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)', [pid, delta]);
-      } else {
-        // kurangi stock (abs)
-        const abs = Math.abs(delta);
-        // pastikan stok cukup (ambil current)
-        const rows = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [pid]);
-        const cur = (rows && rows.length>0) ? rows[0].jumlah : 0;
-        if (cur < abs) {
-          await rollback();
-          return res.status(400).send(`Stok tidak cukup untuk produk_id ${pid} saat update (tersisa ${cur}, butuh ${abs}).`);
+        // ===========================
+        // HAPUS DETAIL LAMA
+        // ===========================
+
+        await q(`DELETE FROM barang_masuk_detail WHERE barang_masuk_id=?`,[id]);
+
+        // ===========================
+        // INSERT DETAIL BARU
+        // ===========================
+
+        for(const item of incomingItems){
+            await q(`INSERT INTO barang_masuk_detail ( barang_masuk_id, produk_id, jumlah, keterangan ) VALUES ( ?,?,?,? ) `,[ id, item.produk_id, item.jumlah, item.keterangan || null ]);
         }
-        await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [abs, pid]);
-      }
+
+        // ===========================
+        // UPDATE STOK
+        // ===========================
+
+        const semuaProduk = [ ...new Set([ ...Object.keys(oldMap), ...Object.keys(newMap)])
+        ];
+        for(const pid of semuaProduk){
+            const lama = oldMap[pid] || 0;
+            const baru = newMap[pid] || 0;
+            const delta = baru - lama;
+            if(delta==0) continue;
+            if(delta>0){
+                await q(`INSERT INTO stock_cabang ( produk_id, cabang_id, jumlah ) VALUES ( ?,?,? ) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)`,[pid,cabangId,delta]);
+            }else{
+                const kurang =
+                    Math.abs(delta);
+                const stok = await q(`SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=? LIMIT 1`,[pid,cabangId]);
+                const tersedia = stok.length ? parseInt(stok[0].jumlah) : 0;
+                if(tersedia < kurang){
+                    await rollback();
+                    return res.status(400).send("Stok tidak cukup.");
+                }
+                await q(`UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id=? AND cabang_id=?`,[kurang,pid,cabangId
+                ]);
+            }
+        }
+        await commit();
+        return res.redirect("/");
+    } catch(err){
+        console.error(err);
+        try{
+            await rollback();
+        }catch(e){}
+        return res.status(500).send("Gagal mengedit barang masuk.");
     }
 
-    await commit();
-    return res.redirect('/'); // sesuai permintaan: redirect ke dashboard
-  } catch (err) {
-    console.error('POST /barang-masuk/:id/edit error:', err);
-    try { await rollback(); } catch(_) {}
-    return res.status(500).send('Gagal menyimpan perubahan.');
-  }
 });
 
 // ---------- UTILITY: parse items dari dua format (pakai di barang masuk & keluar) ----------

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Detail Produk Semarang</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+<div class="container mt-4">
+
+    <div class="card">
+
+        <div class="card-header bg-primary text-white">
+            Detail Produk
+        </div>
+
+        <div class="card-body">
+
+            <table class="table table-bordered">
+
+                <tr>
+                    <th>Kode Produk</th>
+                    <td><%= produk.kode_produk %></td>
+                </tr>
+
+                <tr>
+                    <th>Nama Produk</th>
+                    <td><%= produk.nama %></td>
+                </tr>
+
+                <tr>
+                    <th>Posisi</th>
+                    <td><%= produk.posisi || '-' %></td>
+                </tr>
+
+                <tr>
+                    <th>Keterangan</th>
+                    <td><%= produk.keterangan || '-' %></td>
+                </tr>
+
+                <tr>
+                    <th>Stok Semarang</th>
+                    <td><%= produk.stok_semarang %></td>
+                </tr>
+
+            </table>
+
+            <a href="/stok/semarang" class="btn btn-secondary">
+                Kembali
+            </a>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
