@@ -49,6 +49,16 @@
       <input type="text" class="form-control" name="pengirim" id="pengirim" required />
     </div>
 
+    <div class="mb-3">
+      <label class="form-label">Cabang Tujuan</label>
+
+      <select class="form-select" name="cabang_id" required>
+          <option value="">-- Pilih Cabang --</option>
+          <option value="1">Jakarta</option>
+          <option value="2">Semarang</option>
+      </select>
+  </div>
+
     <!-- TABLE -->
     <table class="table table-bordered text-center">
       <thead class="table-primary">
@@ -87,7 +97,7 @@
           </td>
 
           <td>
-            <input type="file" name="gambar" class="form-control">
+            <input type="file" name="gambar" accept="image/*" class="form-control">
           </td>
 
           <td>
@@ -127,22 +137,21 @@ $(document).ready(function () {
 ========================= */
 $('#addRow').click(function () {
 
-  let clone = $('.item-row:first').clone();
+    let clone = $('.item-row:first').clone();
 
-  // reset semua input
-  clone.find('input').val('');
-  clone.find('select').val('');
+    // destroy select2 lama
+    clone.find('.produk-select').select2('destroy');
 
-  clone.find('.produk-nama').hide();
+    clone.find('input').val('');
+    clone.find('select').val('');
 
-  // HAPUS select2 lama (penting!)
-  clone.find('.select2-container').remove();
-  clone.find('select').removeClass('select2-hidden-accessible');
+    clone.find('.produk-nama')
+        .hide()
+        .prop('required', false);
 
-  $('#itemsContainer').append(clone);
+    $('#itemsContainer').append(clone);
 
-  // init ulang select2
-  initSelect2();
+    initSelect2();
 });
 
 
@@ -159,46 +168,91 @@ $(document).on('click', '.removeRow', function () {
 /* =========================
    TOGGLE TAMBAH BARU
 ========================= */
-$(document).on('change', '.produk-select', function () {
-  let tr = $(this).closest('tr');
-  let input = tr.find('.produk-nama');
+$(document).on('change','.produk-select',function(){
 
-  if ($(this).val() === '__TAMBAH_BARU__') {
-    input.show().prop('required', true);
-  } else {
-    input.hide().prop('required', false);
-  }
+    let tr=$(this).closest('tr');
+
+    if($(this).val()=="__TAMBAH_BARU__"){
+
+        tr.find('.produk-nama')
+          .show()
+          .prop('required',true);
+
+    }else{
+
+        tr.find('.produk-nama')
+          .hide()
+          .val('')
+          .prop('required',false);
+
+    }
+
+});
+
+$(document).on('change','.produk-select',function(){
+
+    if($(this).val()=="__TAMBAH_BARU__"){
+
+        $(this)
+            .closest('tr')
+            .find('.produk-nama')
+            .focus();
+
+    }
+
 });
 
 
 /* =========================
    VALIDASI
 ========================= */
-$('#formMasuk').submit(function (e) {
+$('#formMasuk').submit(function(e){
 
-  let pengirim = $('#pengirim').val().trim();
-  if (!pengirim) {
-    e.preventDefault();
-    alert('Isi nama pengirim');
-    return;
-  }
+    if($('#pengirim').val().trim()==""){
 
-  let valid = false;
+        e.preventDefault();
+        alert("Nama pengirim wajib diisi");
+        return;
 
-  $('.item-row').each(function () {
-    let produk = $(this).find('.produk-select').val();
-    let manual = $(this).find('.produk-nama').val();
-    let jumlah = $(this).find('.jumlah').val();
-
-    if ((produk || manual) && jumlah > 0) {
-      valid = true;
     }
-  });
 
-  if (!valid) {
-    e.preventDefault();
-    alert('Minimal 1 produk harus diisi');
-  }
+    if($('[name="cabang_id"]').val()==""){
+
+        e.preventDefault();
+        alert("Pilih cabang tujuan.");
+        return;
+
+    }
+
+    let valid=false;
+
+    $('.item-row').each(function(){
+
+        const produk=$(this).find('.produk-select').val();
+        const baru=$(this).find('.produk-nama').val().trim();
+        const qty=parseInt($(this).find('.jumlah').val())||0;
+
+        if(produk=="__TAMBAH_BARU__"){
+
+            if(baru!="" && qty>0)
+                valid=true;
+
+        }else{
+
+            if(produk!="" && qty>0)
+                valid=true;
+
+        }
+
+    });
+
+    if(!valid){
+
+        e.preventDefault();
+        alert("Minimal satu produk harus diisi.");
+
+    }
+
 });
 </script>
 

@@ -39,6 +39,7 @@
         <ul class="navbar-nav ms-auto">
           <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
+          <li class="nav-item"><a class="nav-link" href="/seller">Seller</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>" href="/barang-masuk">Barang Masuk</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>" href="/barang-keluar">Barang Keluar</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar-alex' ? 'active' : '' %>" href="/barang-keluar-alex">Barang Keluar Alex</a></li>
@@ -88,8 +89,20 @@
       <div class="card-body">
         <form method="POST" action="/beli" class="row g-3">
           <div class="col-md-3">
-            <label for="customer" class="form-label">Customer/Seller</label>
-            <input type="text" name="customer" id="customer" class="form-control" required placeholder="Nama Customer">
+              <label class="form-label">Seller</label>
+              <select name="seller_id" id="seller_id" class="form-select" required>
+                  <option value="">Pilih Seller</option>
+                  <% seller.forEach(s => { %>
+                      <option value="<%= s.id %>"><%= s.nama_seller %></option>
+                  <% }) %>
+              </select>
+          </div>
+
+          <div class="col-md-3">
+              <label class="form-label">Nama Toko</label>
+              <select name="toko_id" id="toko_id" class="form-select" required>
+                  <option value="">Pilih Toko</option>
+              </select>
           </div>
 
           <div class="col-md-3">
@@ -194,18 +207,57 @@
         <button id="pbExportBtn" type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
           <i class="bi bi-file-earmark-pdf"></i> Export
         </button>
-        <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width:220px;">
-          <li><a class="dropdown-item" href="#" id="exportPB_today">Hari ini</a></li>
-          <li><a class="dropdown-item" href="#" id="exportPB_week">Minggu ini</a></li>
-          <li><a class="dropdown-item" href="#" id="exportPB_month">Bulan ini</a></li>
+        <ul class="dropdown-menu dropdown-menu-end p-3" style="min-width:320px;">
+
+          <li>
+            <label class="form-label small mb-1">
+              Status
+            </label>
+
+            <select
+              id="exportPB_status"
+              class="form-select form-select-sm">
+
+              <option value="all">
+                Semua Status
+              </option>
+
+              <option value="1">
+                Selesai
+              </option>
+
+              <option value="2">
+                Pending
+              </option>
+
+              <option value="3">
+                Cancel
+              </option>
+
+            </select>
+          </li>
+
+          <li class="mt-2">
+            <label class="form-label small mb-1">Seller</label>
+            <select id="exportPB_seller" class="form-select form-select-sm">
+              <option value="all">Semua Seller</option>
+              <% seller.forEach(s => { %>
+                <option value="<%= s.id %>"><%= s.nama_seller %></option>
+              <% }) %>
+            </select>
+          </li>
           <li><hr class="dropdown-divider"></li>
-          <li class="px-2">
-            <label class="form-label small mb-1">Custom range</label>
+          <li><a class="dropdown-item" href="#" id="exportPB_today">Hari Ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportPB_week">Minggu Ini</a></li>
+          <li><a class="dropdown-item" href="#" id="exportPB_month">Bulan Ini</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <label class="form-label small mb-1">Custom Range</label>
             <div class="d-flex gap-1">
               <input type="date" id="exportPB_start" class="form-control form-control-sm">
               <input type="date" id="exportPB_end" class="form-control form-control-sm">
             </div>
-            <div class="text-end mt-1">
+            <div class="text-end mt-2">
               <button id="exportPB_custom" class="btn btn-sm btn-primary">Export</button>
             </div>
           </li>
@@ -216,14 +268,16 @@
       <table class="table table-bordered table-striped table-fixed">
         <thead class="table-dark text-center">
           <tr>
-            <th style="width:60px">No</th>
-            <th>Customer/Seller</th>
-            <th>Produk</th>
-            <th style="width:90px">Jumlah</th>
-            <th style="width:140px">Harga</th>
+            <th style="width:40px">No</th>
+            <th style="width:70px">Seller</th>
+            <th style="width:100px">Toko</th>
+            <th style="width:280px">Produk</th>
+            <th style="width:40px">Jumlah</th>
+            <th style="width:120px">Harga</th>
             <!-- <th style="width:140px">Total</th> -->
-            <th style="width:120px">Keterangan</th>
-            <th style="width:180px">Tanggal</th>
+             <th style="width:80px">Status</th>
+            <th style="width:90px">Ket</th>
+            <th style="width:100px">Tanggal</th>
             <th style="width:110px">Aksi</th>
           </tr>
         </thead>
@@ -234,7 +288,12 @@
             %>
               <tr data-index="<%= idx %>">
                 <td class="row-no"></td>
-                <td class="cell-customer"><%= p.customer %></td>
+                <td>
+                  <%= p.nama_seller || '-' %>
+                </td>
+                <td>
+                  <%= p.nama_toko || '-' %>
+                </td>
                 <td class="cell-produk text-start"><%= prod.nama || p.produk_id %></td>
                 <td class="cell-jumlah"><%= p.jumlah %></td>
                 <td>
@@ -245,43 +304,71 @@
                   Rp <%= Number((p.harga || 0) * (p.jumlah || 0)).toLocaleString('id-ID') %>
                 </td> -->
 
+                <td>
+                  <% if(p.status == 1){ %>
+                    <span class="badge bg-success">Selesai</span>
+                  <% } else if(p.status == 2){ %>
+                    <span class="badge bg-warning text-dark">Pending</span>
+                  <% } else if(p.status == 3){ %>
+                    <span class="badge bg-danger">Cancel</span>
+                  <% } %>
+                </td>
+
                 <td class="cell-keterangan">
                   <%= p.keterangan || '-' %>
                 </td>
                 <td class="cell-tanggal"><%= new Date(p.tanggal).toLocaleString('id-ID') %></td>
                 <td>
-  <div class="d-flex justify-content-center gap-1 align-items-center">
-    <!-- Tombol toggle status: merah jika pending (2), hijau jika selesai (1) -->
-    <button type="button"
-            class="btn btn-sm btnToggleStatus <%= (p.status == 2 ? 'btn-outline-danger' : 'btn-outline-success') %>"
-            data-id="<%= p.id %>"
-            data-produk-id="<%= p.produk_id %>"
-            data-jumlah="<%= p.jumlah %>"
-            title="<%= p.status == 2 ? 'Tandai Selesai' : 'Kembalikan ke Pending' %>">
-      <% if (p.status == 2) { %>
-        <i class="bi bi-x-circle"></i>
-      <% } else { %>
-        <i class="bi bi-check-circle"></i>
-      <% } %>
-    </button>
+                  <div class="d-flex justify-content-center gap-1">
 
-    <!-- Tombol Lihat Produk -->
-    <button type="button"
-      class="btn btn-outline-primary btn-sm btnLihatProduk"
-      data-produk='<%- JSON.stringify(prod) %>'
-      title="Lihat Produk"
-      aria-label="Lihat Produk">
-      <i class="bi bi-eye"></i>
-    </button>
+                    <!-- Pending / Selesai -->
+                    <% if (p.status == 2) { %>
+                      <button
+                        type="button"
+                        class="btn btn-success btn-sm btnToggleStatus"
+                        data-id="<%= p.id %>"
+                        title="Tandai Selesai">
 
-    <!-- Tombol Batalkan (hapus) -->
-    <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
-      <button type="submit" class="btn btn-outline-danger btn-sm" title="Batalkan" aria-label="Batalkan">
-        <i class="bi bi-trash"></i>
-      </button>
-    </form>
-  </div>
-</td>
+                        <i class="bi bi-check-lg"></i>
+
+                      </button>
+                    <% } else { %>
+                      <button
+                        type="button"
+                        class="btn btn-warning btn-sm btnToggleStatus"
+                        data-id="<%= p.id %>"
+                        title="Kembalikan ke Pending">
+
+                        <i class="bi bi-arrow-counterclockwise"></i>
+
+                      </button>
+                    <% } %>
+
+                    <!-- Lihat -->
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm btnLihatProduk"
+                      data-produk='<%- JSON.stringify(prod) %>'
+                      title="Lihat Produk">
+
+                      <i class="bi bi-eye-fill"></i>
+
+                    </button>
+
+                    <!-- Cancel -->
+                    <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
+                      <button
+                        type="submit"
+                        class="btn btn-danger btn-sm"
+                        title="Cancel">
+
+                        <i class="bi bi-x-lg"></i>
+
+                      </button>
+                    </form>
+
+                  </div>
+                </td>
 
               </tr>
             <% }); %>
@@ -514,7 +601,7 @@
     <thead class="table-dark text-center">
       <tr>
         <th width="60">No</th>
-        <th>Kode</th>
+        <th>Tujuan</th>
         <th>Nama Barang</th>
         <th width="100">Jumlah</th>
         <th>Keterangan</th>
@@ -537,7 +624,7 @@
             </td>
 
             <td>
-              <%= item.kode_barang || '-' %>
+              <%= item.tujuan %>
             </td>
 
             <td>
@@ -883,14 +970,173 @@ document.getElementById('exportBK_month').addEventListener('click',e=>{e.prevent
 document.getElementById('exportBK_custom').addEventListener('click',()=>{const s=document.getElementById('exportBK_start').value,e=document.getElementById('exportBK_end').value;if(!s||!e)return alert('Pilih tanggal mulai dan akhir.');if(s>e)return alert('Tanggal mulai harus <= tanggal akhir.');openExportBK(s,e);});
 </script>
 <script>
-function toYMD(d){const p=n=>n<10?'0'+n:''+n;return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
-function weekRange(d){const day=(d.getDay()+6)%7;const mon=new Date(d);mon.setDate(d.getDate()-day);const sun=new Date(mon);sun.setDate(mon.getDate()+6);return{start:toYMD(mon),end:toYMD(sun)};}
-function openExportPB(s,e){if(!s||!e)return alert('Range belum lengkap.');window.open(`/export/pembelian/pdf?start=${s}&end=${e}`,'_blank');}
 
-document.getElementById('exportPB_today').addEventListener('click',e=>{e.preventDefault();const t=toYMD(new Date());openExportPB(t,t);});
-document.getElementById('exportPB_week').addEventListener('click',e=>{e.preventDefault();const r=weekRange(new Date());openExportPB(r.start,r.end);});
-document.getElementById('exportPB_month').addEventListener('click',e=>{e.preventDefault();const n=new Date(),s=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-01',eD=new Date(n.getFullYear(),n.getMonth()+1,0).getDate(),eDate=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(eD).padStart(2,'0');openExportPB(s,eDate);});
-document.getElementById('exportPB_custom').addEventListener('click',()=>{const s=document.getElementById('exportPB_start').value,e=document.getElementById('exportPB_end').value;if(!s||!e)return alert('Pilih tanggal mulai dan akhir.');if(s>e)return alert('Tanggal mulai harus <= tanggal akhir.');openExportPB(s,e);});
+function toYMD(d){
+
+  const p=n=>n<10?'0'+n:''+n;
+
+  return d.getFullYear()
+    +'-'+p(d.getMonth()+1)
+    +'-'+p(d.getDate());
+
+}
+
+function weekRange(d){
+
+  const day=(d.getDay()+6)%7;
+
+  const mon=new Date(d);
+
+  mon.setDate(d.getDate()-day);
+
+  const sun=new Date(mon);
+
+  sun.setDate(mon.getDate()+6);
+
+  return {
+    start:toYMD(mon),
+    end:toYMD(sun)
+  };
+
+}
+
+function openExportPB(start,end){
+
+  const status =
+    document.getElementById(
+      'exportPB_status'
+    ).value;
+
+  const seller =
+    document.getElementById(
+      'exportPB_seller'
+    ).value;
+
+  let url =
+    `/export/pembelian/pdf?start=${start}&end=${end}`;
+
+  if(status){
+
+    url += `&status=${status}`;
+
+  }
+
+  if(seller){
+
+    url += `&seller_id=${seller}`;
+
+  }
+
+  window.open(
+    url,
+    '_blank'
+  );
+
+}
+
+// HARI INI
+document
+.getElementById('exportPB_today')
+.addEventListener('click',e=>{
+
+  e.preventDefault();
+
+  const t = toYMD(
+    new Date()
+  );
+
+  openExportPB(t,t);
+
+});
+
+// MINGGU INI
+document
+.getElementById('exportPB_week')
+.addEventListener('click',e=>{
+
+  e.preventDefault();
+
+  const r =
+    weekRange(
+      new Date()
+    );
+
+  openExportPB(
+    r.start,
+    r.end
+  );
+
+});
+
+// BULAN INI
+document
+.getElementById('exportPB_month')
+.addEventListener('click',e=>{
+
+  e.preventDefault();
+
+  const n = new Date();
+
+  const start =
+    n.getFullYear()
+    + '-'
+    + String(
+        n.getMonth()+1
+      ).padStart(2,'0')
+    + '-01';
+
+  const end =
+    n.getFullYear()
+    + '-'
+    + String(
+        n.getMonth()+1
+      ).padStart(2,'0')
+    + '-'
+    + String(
+        new Date(
+          n.getFullYear(),
+          n.getMonth()+1,
+          0
+        ).getDate()
+      ).padStart(2,'0');
+
+  openExportPB(
+    start,
+    end
+  );
+
+});
+
+// CUSTOM
+document
+.getElementById('exportPB_custom')
+.addEventListener('click',()=>{
+
+  const start =
+    document.getElementById(
+      'exportPB_start'
+    ).value;
+
+  const end =
+    document.getElementById(
+      'exportPB_end'
+    ).value;
+
+  if(!start || !end){
+
+    return alert(
+      'Pilih tanggal terlebih dahulu'
+    );
+
+  }
+
+  openExportPB(
+    start,
+    end
+  );
+
+});
+
 </script>
 <script>
 document.addEventListener('click', async (ev) => {
@@ -1132,6 +1378,86 @@ document.addEventListener('click', async (ev) => {
       openExportAll(s, eD);
     });
   })();
+</script>
+<script>
+$('#seller_id').on('change', function(){
+
+    const sellerId = $(this).val();
+
+    $('#toko_id option').hide();
+
+    $('#toko_id option:first').show();
+
+    $('#toko_id option[data-seller="' + sellerId + '"]').show();
+
+    $('#toko_id').val('');
+
+});
+</script>
+<script>
+
+document.addEventListener('DOMContentLoaded', () => {
+
+  const sellerSelect =
+    document.getElementById('seller_id');
+
+  const tokoSelect =
+    document.getElementById('toko_id');
+
+  sellerSelect.addEventListener(
+    'change',
+    async function(){
+
+      const sellerId = this.value;
+
+      tokoSelect.innerHTML =
+        '<option>Loading...</option>';
+
+      if(!sellerId){
+
+        tokoSelect.innerHTML =
+          '<option value="">Pilih Seller Dahulu</option>';
+
+        return;
+      }
+
+      try{
+
+        const response =
+          await fetch(`/seller/${sellerId}/toko`);
+
+        const data =
+          await response.json();
+
+        let html =
+          '<option value="">Pilih Toko</option>';
+
+        data.forEach(t => {
+
+          html += `
+            <option value="${t.id}">
+              ${t.nama_toko}
+            </option>
+          `;
+
+        });
+
+        tokoSelect.innerHTML = html;
+
+      }catch(err){
+
+        console.error(err);
+
+        tokoSelect.innerHTML =
+          '<option value="">Gagal memuat toko</option>';
+
+      }
+
+    }
+  );
+
+});
+
 </script>
 
 </body>

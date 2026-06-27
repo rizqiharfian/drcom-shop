@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Master Seller</title>
+
+<link rel="icon" href="/drcom.png">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+
+<div class="container">
+
+<a class="navbar-brand" href="/">
+DRCOM
+</a>
+
+<div class="navbar-nav ms-auto">
+
+<a class="nav-link" href="/">
+Beranda
+</a>
+
+<a class="nav-link active" href="/seller">
+Seller
+</a>
+
+</div>
+
+</div>
+
+</nav>
+
+<div class="container">
+
+<div class="row">
+
+<!-- FORM SELLER -->
+
+<div class="col-md-4">
+
+<div class="card shadow-sm mb-3">
+
+<div class="card-header bg-primary text-white">
+Tambah Seller
+</div>
+
+<div class="card-body">
+
+<form action="/seller/tambah" method="POST">
+
+<div class="mb-3">
+
+<label>Nama Seller</label>
+
+<input
+type="text"
+name="nama_seller"
+class="form-control"
+required>
+
+</div>
+
+<button class="btn btn-success">
+Simpan Seller
+</button>
+
+</form>
+
+</div>
+
+</div>
+
+<!-- FORM TOKO -->
+
+<div class="card shadow-sm">
+
+<div class="card-header bg-success text-white">
+Tambah Toko
+</div>
+
+<div class="card-body">
+
+<form action="/seller/toko/tambah" method="POST">
+
+<div class="mb-3">
+
+<label>Seller</label>
+
+<select
+name="seller_id"
+class="form-select"
+required>
+
+<option value="">
+Pilih Seller
+</option>
+
+<% seller.forEach(s=>{ %>
+
+<option value="<%= s.id %>">
+<%= s.nama_seller %>
+</option>
+
+<% }) %>
+
+</select>
+
+</div>
+
+<div class="mb-3">
+
+<label>Nama Toko</label>
+
+<input
+type="text"
+name="nama_toko"
+class="form-control"
+required>
+
+</div>
+
+<button class="btn btn-primary">
+Simpan Toko
+</button>
+
+</form>
+
+</div>
+
+</div>
+
+</div>
+
+<!-- DATA -->
+
+<div class="col-md-8">
+
+<div class="card shadow-sm mb-3">
+
+<div class="card-header bg-dark text-white">
+Daftar Seller
+</div>
+
+<div class="card-body table-responsive">
+
+<table class="table table-bordered">
+
+<thead>
+
+<tr>
+
+<th>Nama Seller</th>
+<th width="100">Aksi</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+<% seller.forEach(s=>{ %>
+
+<tr>
+
+<td>
+<%= s.nama_seller %>
+</td>
+
+<td>
+
+<form
+action="/seller/<%= s.id %>/hapus"
+method="POST">
+
+<button
+class="btn btn-danger btn-sm">
+
+Hapus
+
+</button>
+
+</form>
+
+</td>
+
+</tr>
+
+<% }) %>
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+<div class="card shadow-sm">
+
+<div class="card-header bg-warning">
+Daftar Toko Seller
+</div>
+
+<div class="card-body table-responsive">
+
+<table class="table table-bordered">
+
+<thead>
+
+<tr>
+
+<th>Seller</th>
+<th>Nama Toko</th>
+<th width="100">Aksi</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+<% toko.forEach(t=>{ %>
+
+<tr>
+
+<td>
+<%= t.nama_seller %>
+</td>
+
+<td>
+<%= t.nama_toko %>
+</td>
+
+<td>
+
+<form
+action="/seller/toko/<%= t.id %>/hapus"
+method="POST">
+
+<button
+class="btn btn-danger btn-sm">
+
+Hapus
+
+</button>
+
+</form>
+
+</td>
+
+</tr>
+
+<% }) %>
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+</body>
+</html>
