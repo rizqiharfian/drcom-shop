@@ -43,6 +43,10 @@
                 <div class="card-body">
                   <h6 class="card-title mb-1"><%= it.nama || ('#' + it.produk_id) %></h6>
                   <p class="mb-1"><strong>Jumlah:</strong> <%= it.jumlah %></p>
+                  <p class="mb-1">
+                      <strong>Harga:</strong>
+                      Rp <%= Number(it.harga || 0).toLocaleString('id-ID') %>
+                  </p>
                   <p class="mb-0 text-muted"><strong>Keterangan:</strong> <%= it.keterangan || '-' %></p>
                 </div>
               </div>

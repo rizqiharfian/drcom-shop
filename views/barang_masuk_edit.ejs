@@ -18,7 +18,7 @@
       </div>
     </div>
 
-    <form method="POST" action="/barang-masuk/<%= bm.id %>/edit" id="formEditBM">
+    <form method="POST" action="/barang-masuk/<%= bm.id %>/edit" id="formEditBM" enctype="multipart/form-data">
       <div class="mb-3">
         <label class="form-label">Nama Pengirim</label>
         <input type="text" name="pengirim" id="pengirim" class="form-control" value="<%= bm.pengirim %>" required>
@@ -30,7 +30,9 @@
             <th>Produk</th>
             <th>Jika Tambah Baru - Nama Produk</th>
             <th>Jumlah</th>
+            <th>Harga</th>
             <th>Keterangan</th>
+            <th>Gambar</th>
             <th>Aksi</th>
           </tr>
         </thead>
@@ -49,7 +51,14 @@
                 </td>
                 <td><input type="text" name="produk_nama[]" class="form-control produk-nama" placeholder="Nama jika tambah baru" style="display:none;" value="<%= it.produk_id ? '' : it.produk_nama %>"></td>
                 <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required value="<%= it.jumlah %>"></td>
+                <td><input type="number" name="harga[]" class="form-control harga" min="0" value="<%= it.harga || 0 %>" required></td>
                 <td><input type="text" name="keterangan[]" class="form-control keterangan" value="<%= it.keterangan %>"></td>
+                <td>
+                    <% if(it.gambar){ %>
+                        <img src="/media/<%= it.gambar %>" class="img-thumbnail mb-2" style="width:70px;height:70px;object-fit:cover;">
+                    <% } %>
+                    <input type="file" name="gambar" class="form-control form-control-sm" accept="image/*">
+                </td>
                 <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
               </tr>
             <% }) %>
@@ -65,7 +74,8 @@
                 </select>
               </td>
               <td><input type="text" name="produk_nama[]" class="form-control produk-nama" placeholder="Nama jika tambah baru" style="display:none;"></td>
-              <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required></td>
+              <td><input type="number" name="jumlah[]" class="form-control jumlah" min="1" required></td>\
+              <td><input type="number" name="harga[]" class="form-control harga" min="0" required></td>
               <td><input type="text" name="keterangan[]" class="form-control keterangan"></td>
               <td><button type="button" class="btn btn-danger btn-sm removeRow">Hapus</button></td>
             </tr>
@@ -90,8 +100,10 @@
   document.getElementById('addRow').addEventListener('click', function(){
     const template = document.querySelector('#itemsContainer .item-row');
     const clone = template.cloneNode(true);
-    clone.querySelectorAll('input').forEach(i => i.value = '');
-    clone.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+    clone.querySelectorAll('input').forEach(i=>i.value='');
+    clone.querySelectorAll('select').forEach(s=>s.selectedIndex=0);
+    const img=clone.querySelector('img');
+    if(img) img.remove();
     clone.querySelector('.produk-nama').style.display = 'none';
     document.getElementById('itemsContainer').appendChild(clone);
   });
@@ -129,11 +141,12 @@
       const selVal = sel ? sel.value : '';
       const manual = r.querySelector('.produk-nama')?.value?.trim() || '';
       const jumlah = r.querySelector('.jumlah')?.value || '';
+      const harga = r.querySelector('.harga')?.value || '';
       const keterangan = r.querySelector('.keterangan')?.value?.trim() || null;
       if (selVal === '__TAMBAH_BARU__') {
-        return { produk_nama: manual, jumlah: jumlah ? parseInt(jumlah,10) : 0, keterangan };
+        return { produk_nama: manual, jumlah: jumlah ? parseInt(jumlah,10) : 0, harga: harga ? parseFloat(harga) : 0, keterangan };
       } else {
-        return { produk_id: selVal ? parseInt(selVal,10) : null, jumlah: jumlah ? parseInt(jumlah,10) : 0, keterangan };
+        return { produk_id: selVal ? parseInt(selVal,10) : null, jumlah: jumlah ? parseInt(jumlah,10) : 0, harga: harga ? parseFloat(harga) : 0, keterangan };
       }
     }).filter(it => ( (it.produk_id && it.produk_id>0) || (it.produk_nama && it.produk_nama.length>0) ) && it.jumlah && it.jumlah > 0);
 

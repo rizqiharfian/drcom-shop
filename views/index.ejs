@@ -45,7 +45,13 @@
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar-alex' ? 'active' : '' %>" href="/barang-keluar-alex">Barang Keluar Alex</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-hilang' ? 'active' : '' %>" href="/barang-hilang">Barang Hilang</a></li>
           <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>" href="/produk">Produk</a></li>
-          <li class="nav-item"><a class="nav-link <%= currentPath === '/sparepart' ? 'active' : '' %>" href="/sparepart">Sparepart</a></li>
+          <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Sparepart</a>
+              <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="/sparepart">Master Sparepart</a></li>
+                  <!-- <li><a class="dropdown-item" href="/sparepart-masuk">Sparepart Masuk</a></li> -->
+              </ul>
+          </li>
         </ul>
       </div>
     </div>
@@ -87,8 +93,8 @@
     <div class="card mb-4">
       <div class="card-header bg-primary text-white">Form Pembelian</div>
       <div class="card-body">
-        <form method="POST" action="/beli" class="row g-3">
-          <div class="col-md-3">
+        <form method="POST" action="/beli" enctype="multipart/form-data" class="row g-3">
+          <div class="col-md-2">
               <label class="form-label">Seller</label>
               <select name="seller_id" id="seller_id" class="form-select" required>
                   <option value="">Pilih Seller</option>
@@ -98,7 +104,7 @@
               </select>
           </div>
 
-          <div class="col-md-3">
+          <div class="col-md-2">
               <label class="form-label">Nama Toko</label>
               <select name="toko_id" id="toko_id" class="form-select" required>
                   <option value="">Pilih Toko</option>
@@ -192,6 +198,16 @@
             <input type="text" name="keterangan" id="keterangan" class="form-control" required placeholder="keterangan">
           </div>
 
+          <div class="col-md-2">
+              <label class="form-label">Posisi Pengambilan</label>
+              <input type="text" name="posisi_pengambilan" class="form-control" placeholder="Contoh : Rak A1">
+          </div>
+
+          <div class="col-md-3">
+              <label class="form-label">Foto Barang</label>
+              <input type="file" name="gambar" accept="image/*" class="form-control">
+          </div>
+
           <div class="col-md-2 d-flex align-items-end">
             <button type="submit" class="btn btn-success w-100">Proses</button>
           </div>
@@ -269,16 +285,16 @@
         <thead class="table-dark text-center">
           <tr>
             <th style="width:40px">No</th>
-            <th style="width:70px">Seller</th>
+            <th style="width:80px">Seller</th>
             <th style="width:100px">Toko</th>
             <th style="width:280px">Produk</th>
-            <th style="width:40px">Jumlah</th>
+            <th style="width:60px">Jumlah</th>
             <th style="width:120px">Harga</th>
             <!-- <th style="width:140px">Total</th> -->
              <th style="width:80px">Status</th>
-            <th style="width:90px">Ket</th>
+            <th style="width:70px">Ket</th>
             <th style="width:100px">Tanggal</th>
-            <th style="width:110px">Aksi</th>
+            <th style="width:120px">Aksi</th>
           </tr>
         </thead>
         <tbody id="tbPembelian" class="text-center">
@@ -354,6 +370,18 @@
                       <i class="bi bi-eye-fill"></i>
 
                     </button>
+
+                    <!-- Edit -->
+                    <% if (p.status == 2) { %>
+                        <a
+                            href="/beli/edit/<%= p.id %>"
+                            class="btn btn-warning btn-sm"
+                            title="Edit Pembelian">
+
+                            <i class="bi bi-pencil-square"></i>
+
+                        </a>
+                    <% } %>
 
                     <!-- Cancel -->
                     <form action="/cancel/<%= p.id %>" method="POST" style="display:inline;">
@@ -607,7 +635,7 @@
         <th>Keterangan</th>
         <th width="150">Status</th>
         <th width="180">Tanggal</th>
-        <th width="220">Aksi</th>
+        <!-- <th width="220">Aksi</th> -->
       </tr>
     </thead>
 
@@ -671,7 +699,7 @@
               <%= new Date(item.created_at).toLocaleString('id-ID') %>
             </td>
 
-            <td class="text-center">
+            <!-- <td class="text-center">
 
               <% if(item.status === 'pending'){ %>
 
@@ -713,7 +741,7 @@
 
               <% } %>
 
-            </td>
+            </td> -->
 
           </tr>
 

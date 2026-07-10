@@ -50,6 +50,11 @@
     </div>
 
     <div class="mb-3">
+      <label class="form-label">Nama Penerima</label>
+      <input type="text" class="form-control" name="penerima" id="penerima" required />
+    </div>
+
+    <div class="mb-3">
       <label class="form-label">Cabang Tujuan</label>
 
       <select class="form-select" name="cabang_id" required>
@@ -66,6 +71,7 @@
           <th>Produk</th>
           <th>Nama Baru</th>
           <th>Jumlah</th>
+          <th>Harga</th>
           <th>Keterangan</th>
           <th>Gambar</th>
           <th>Aksi</th>
@@ -90,6 +96,10 @@
 
           <td>
             <input type="number" name="jumlah[]" class="form-control jumlah" min="1" required>
+          </td>
+
+          <td>
+              <input type="number" name="harga[]" class="form-control harga" min="0" placeholder="Harga">
           </td>
 
           <td>
@@ -216,6 +226,15 @@ $('#formMasuk').submit(function(e){
 
     }
 
+    if($('#penerima').val().trim()==""){
+
+        e.preventDefault();
+        alert("Nama penerima wajib diisi");
+        return;
+
+    }
+
+
     if($('[name="cabang_id"]').val()==""){
 
         e.preventDefault();
@@ -231,15 +250,16 @@ $('#formMasuk').submit(function(e){
         const produk=$(this).find('.produk-select').val();
         const baru=$(this).find('.produk-nama').val().trim();
         const qty=parseInt($(this).find('.jumlah').val())||0;
+        const harga=parseFloat($(this).find('.harga').val())||0;
 
         if(produk=="__TAMBAH_BARU__"){
 
-            if(baru!="" && qty>0)
+            if(baru!="" && qty>0 && harga>0)
                 valid=true;
 
         }else{
 
-            if(produk!="" && qty>0)
+            if(produk!="" && qty>0 && harga>0)
                 valid=true;
 
         }

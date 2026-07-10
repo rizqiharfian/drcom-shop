@@ -27,7 +27,7 @@ const db = require('./config/db');
 // app.use('/', require('./routes/...'));
 
 // helper promise wrappers
-const q = (sql, params=[]) => new Promise((resolve, reject) => {
+const q = (sql, params = []) => new Promise((resolve, reject) => {
   db.query(sql, params, (err, results) => err ? reject(err) : resolve(results));
 });
 
@@ -42,6 +42,26 @@ const commit = () => new Promise((resolve, reject) => {
 const rollback = () => new Promise((resolve, reject) => {
   db.rollback(() => resolve()); // ignore rollback error, just resolve after rollback
 });
+
+const fs = require('fs');
+const multer = require('multer');
+
+// pastikan folder media ada
+const mediaDir = path.join(__dirname, 'media');
+if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+
+// multer setup: simpan di folder /media
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, mediaDir);
+  },
+  filename: function (req, file, cb) {
+    // buat nama unik: timestamp + originalname
+    const name = Date.now() + '_' + file.originalname.replace(/\s+/g, '_');
+    cb(null, name);
+  }
+});
+const upload = multer({ storage });
 
 // middleware untuk path (navbar aktif jika pakai)
 app.use((req, res, next) => {
@@ -186,23 +206,24 @@ app.get('/', async (req, res) => {
 
     // Riwayat barang masuk (ambil bm.tanggal AS created_at supaya view tidak berubah)
     const rowsBM = await q(`
-      SELECT bm.id AS bm_id, bm.pengirim, bm.tanggal AS created_at,
+      SELECT bm.id AS bm_id, bm.pengirim, bm.penerima, bm.tanggal AS created_at,
              bmd.produk_id, bmd.jumlah, bmd.keterangan, p.nama
       FROM barang_masuk bm
       LEFT JOIN barang_masuk_detail bmd ON bm.id = bmd.barang_masuk_id
       LEFT JOIN produk p ON bmd.produk_id = p.id
-      ORDER BY bm.tanggal DESC, bm.id DESC
+      ORDER BY bm.id DESC
     `);
     const groupedBM = {};
     rowsBM.forEach(r => {
       if (!r.bm_id) return;
-      if (!groupedBM[r.bm_id]) groupedBM[r.bm_id] = { id: r.bm_id, pengirim: r.pengirim, created_at: r.created_at, items: [] };
+      if (!groupedBM[r.bm_id]) groupedBM[r.bm_id] = { id: r.bm_id, pengirim: r.pengirim, penerima: r.penerima, created_at: r.created_at, items: [] };
       groupedBM[r.bm_id].items.push({ produk_id: r.produk_id, nama: r.nama, jumlah: r.jumlah, keterangan: r.keterangan });
     });
-    const listBarangMasuk = Object.values(groupedBM);
+    const listBarangMasuk = Object.values(groupedBM)
+    .sort((a,b)=>b.id-a.id);
 
     // Riwayat barang keluar (ambil bk.tanggal AS created_at)
-const rowsBK = await q(`
+    const rowsBK = await q(`
   SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS created_at,
          bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan, bkd.status, p.nama
   FROM barang_keluar bk
@@ -210,25 +231,25 @@ const rowsBK = await q(`
   LEFT JOIN produk p ON bkd.produk_id = p.id
   ORDER BY bk.tanggal DESC, bk.id DESC
 `);
-const groupedBK = {};
-rowsBK.forEach(r => {
-  if (!r.bk_id) return;
-  if (!groupedBK[r.bk_id]) groupedBK[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, created_at: r.created_at, items: [] };
-  groupedBK[r.bk_id].items.push({
-    detail_id: r.detail_id,
-    produk_id: r.produk_id,
-    nama: r.nama,
-    jumlah: r.jumlah,
-    keterangan: r.keterangan,
-    status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
-  });
-  });
+    const groupedBK = {};
+    rowsBK.forEach(r => {
+      if (!r.bk_id) return;
+      if (!groupedBK[r.bk_id]) groupedBK[r.bk_id] = { id: r.bk_id, tujuan: r.tujuan, created_at: r.created_at, items: [] };
+      groupedBK[r.bk_id].items.push({
+        detail_id: r.detail_id,
+        produk_id: r.produk_id,
+        nama: r.nama,
+        jumlah: r.jumlah,
+        keterangan: r.keterangan,
+        status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
+      });
+    });
 
-  // ======================
-  // BARANG KELUAR ALEX
-  // ======================
+    // ======================
+    // BARANG KELUAR ALEX
+    // ======================
 
-  const barangKeluarAlexList = await q(`
+    const barangKeluarAlexList = await q(`
     SELECT
       a.*,
       p.nama AS nama_produk
@@ -242,9 +263,9 @@ rowsBK.forEach(r => {
       END,
       a.created_at DESC
   `);
-const listBarangKeluar = Object.values(groupedBK);
+    const listBarangKeluar = Object.values(groupedBK);
 
-const barangHilang = await q(`
+    const barangHilang = await q(`
       SELECT
         bh.*,
         p.nama,
@@ -277,9 +298,9 @@ const barangHilang = await q(`
 // HALAMAN BARANG HILANG
 // ======================================================
 
-app.get('/barang-hilang', async (req,res)=>{
+app.get('/barang-hilang', async (req, res) => {
 
-  try{
+  try {
 
     const produk = await q(`
       SELECT
@@ -311,11 +332,11 @@ app.get('/barang-hilang', async (req,res)=>{
       {
         produk,
         data,
-        path:'/barang-hilang'
+        path: '/barang-hilang'
       }
     );
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -325,9 +346,9 @@ app.get('/barang-hilang', async (req,res)=>{
 
 });
 
-app.post('/barang-hilang', async (req,res)=>{
+app.post('/barang-hilang', async (req, res) => {
 
-  try{
+  try {
 
     const {
       produk_id,
@@ -343,7 +364,7 @@ app.post('/barang-hilang', async (req,res)=>{
         keterangan
       )
       VALUES (?, ?, ?)
-    `,[
+    `, [
       produk_id,
       jumlah,
       keterangan || null
@@ -351,7 +372,7 @@ app.post('/barang-hilang', async (req,res)=>{
 
     res.redirect('/barang-hilang');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -361,21 +382,21 @@ app.post('/barang-hilang', async (req,res)=>{
 
 });
 
-app.post('/barang-hilang/:id/ditemukan', async (req,res)=>{
+app.post('/barang-hilang/:id/ditemukan', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       UPDATE barang_hilang
       SET status='ditemukan'
       WHERE id=?
-    `,[
+    `, [
       req.params.id
     ]);
 
     res.redirect('/barang-hilang');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -389,16 +410,16 @@ app.post('/barang-hilang/:id/ditemukan', async (req,res)=>{
 // EXPORT PDF BARANG HILANG
 // ======================================================
 
-app.get('/barang-hilang/export', async (req,res)=>{
+app.get('/barang-hilang/export', async (req, res) => {
 
-  try{
+  try {
 
     const type = req.query.type || 'all';
 
     let where = '';
     let params = [];
 
-    if(type === 'hari'){
+    if (type === 'hari') {
 
       where = `
         WHERE DATE(bh.created_at)=CURDATE()
@@ -406,7 +427,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
 
     }
 
-    if(type === 'minggu'){
+    if (type === 'minggu') {
 
       where = `
         WHERE bh.created_at >= DATE_SUB(NOW(),INTERVAL 7 DAY)
@@ -414,7 +435,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
 
     }
 
-    if(type === 'bulan'){
+    if (type === 'bulan') {
 
       where = `
         WHERE MONTH(bh.created_at)=MONTH(NOW())
@@ -434,12 +455,12 @@ app.get('/barang-hilang/export', async (req,res)=>{
         ON p.id = bh.produk_id
       ${where}
       ORDER BY bh.created_at DESC
-    `,params);
+    `, params);
 
     let totalKerugian = 0;
     let totalQty = 0;
 
-    rows.forEach(r=>{
+    rows.forEach(r => {
 
       const hargaModal =
         Number(r.harga_modal || 0);
@@ -455,9 +476,9 @@ app.get('/barang-hilang/export', async (req,res)=>{
     });
 
     const doc = new PDFDocument({
-      size:'A4',
-      layout:'landscape',
-      margin:20
+      size: 'A4',
+      layout: 'landscape',
+      margin: 20
     });
 
     res.setHeader(
@@ -481,7 +502,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
       .text(
         'LAPORAN BARANG HILANG / BELUM KETEMU',
         {
-          align:'center'
+          align: 'center'
         }
       );
 
@@ -492,7 +513,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
       .text(
         `Dicetak : ${new Date().toLocaleString('id-ID')}`,
         {
-          align:'right'
+          align: 'right'
         }
       );
 
@@ -516,15 +537,15 @@ app.get('/barang-hilang/export', async (req,res)=>{
 
     let y = doc.y;
 
-    doc.rect(20,y,780,30).stroke();
+    doc.rect(20, y, 780, 30).stroke();
 
-    doc.text('No',25,y+8);
-    doc.text('Kode',55,y+8);
-    doc.text('Produk',130,y+8);
-    doc.text('Qty',430,y+8);
-    doc.text('Harga Modal',490,y+8);
-    doc.text('Total',620,y+8);
-    doc.text('Status',730,y+8);
+    doc.text('No', 25, y + 8);
+    doc.text('Kode', 55, y + 8);
+    doc.text('Produk', 130, y + 8);
+    doc.text('Qty', 430, y + 8);
+    doc.text('Harga Modal', 490, y + 8);
+    doc.text('Total', 620, y + 8);
+    doc.text('Status', 730, y + 8);
 
     y += 30;
 
@@ -532,7 +553,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
     // DATA
     // =====================================
 
-    rows.forEach((r,index)=>{
+    rows.forEach((r, index) => {
 
       const hargaModal =
         Number(r.harga_modal || 0);
@@ -544,7 +565,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
       const tinggiProduk = doc.heightOfString(
         r.nama || '-',
         {
-          width:280
+          width: 280
         }
       );
 
@@ -554,7 +575,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
           tinggiProduk + 15
         );
 
-      if(y + rowHeight > 520){
+      if (y + rowHeight > 520) {
 
         doc.addPage();
 
@@ -580,7 +601,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
         55,
         y + 10,
         {
-          width:60
+          width: 60
         }
       );
 
@@ -589,8 +610,8 @@ app.get('/barang-hilang/export', async (req,res)=>{
         130,
         y + 10,
         {
-          width:280,
-          align:'left'
+          width: 280,
+          align: 'left'
         }
       );
 
@@ -599,8 +620,8 @@ app.get('/barang-hilang/export', async (req,res)=>{
         430,
         y + 10,
         {
-          width:40,
-          align:'left'
+          width: 40,
+          align: 'left'
         }
       );
 
@@ -609,7 +630,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
         490,
         y + 10,
         {
-          width:110
+          width: 110
         }
       );
 
@@ -618,7 +639,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
         620,
         y + 10,
         {
-          width:90
+          width: 90
         }
       );
 
@@ -627,7 +648,7 @@ app.get('/barang-hilang/export', async (req,res)=>{
         730,
         y + 10,
         {
-          width:50
+          width: 50
         }
       );
 
@@ -649,13 +670,13 @@ app.get('/barang-hilang/export', async (req,res)=>{
         0,
         y,
         {
-          align:'right'
+          align: 'right'
         }
       );
 
     doc.end();
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -671,9 +692,9 @@ app.get('/barang-hilang/export', async (req,res)=>{
 // HALAMAN SELLER
 // =====================================
 
-app.get('/seller', async(req,res)=>{
+app.get('/seller', async (req, res) => {
 
-  try{
+  try {
 
     const seller = await q(`
       SELECT *
@@ -696,12 +717,12 @@ app.get('/seller', async(req,res)=>{
         st.nama_toko ASC
     `);
 
-    res.render('seller',{
+    res.render('seller', {
       seller,
       toko
     });
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -715,9 +736,9 @@ app.get('/seller', async(req,res)=>{
 // TAMBAH SELLER
 // =====================================
 
-app.post('/seller/tambah', async(req,res)=>{
+app.post('/seller/tambah', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       INSERT INTO seller
@@ -725,13 +746,13 @@ app.post('/seller/tambah', async(req,res)=>{
         nama_seller
       )
       VALUES (?)
-    `,[
+    `, [
       req.body.nama_seller
     ]);
 
     res.redirect('/seller');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -745,9 +766,9 @@ app.post('/seller/tambah', async(req,res)=>{
 // TAMBAH TOKO SELLER
 // =====================================
 
-app.post('/seller/toko/tambah', async(req,res)=>{
+app.post('/seller/toko/tambah', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       INSERT INTO seller_toko
@@ -756,14 +777,14 @@ app.post('/seller/toko/tambah', async(req,res)=>{
         nama_toko
       )
       VALUES (?,?)
-    `,[
+    `, [
       req.body.seller_id,
       req.body.nama_toko
     ]);
 
     res.redirect('/seller');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -773,18 +794,18 @@ app.post('/seller/toko/tambah', async(req,res)=>{
 
 });
 
-app.post('/seller/:id/hapus', async(req,res)=>{
+app.post('/seller/:id/hapus', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       DELETE FROM seller
       WHERE id=?
-    `,[req.params.id]);
+    `, [req.params.id]);
 
     res.redirect('/seller');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -794,18 +815,18 @@ app.post('/seller/:id/hapus', async(req,res)=>{
 
 });
 
-app.post('/seller/toko/:id/hapus', async(req,res)=>{
+app.post('/seller/toko/:id/hapus', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       DELETE FROM seller_toko
       WHERE id=?
-    `,[req.params.id]);
+    `, [req.params.id]);
 
     res.redirect('/seller');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -815,20 +836,20 @@ app.post('/seller/toko/:id/hapus', async(req,res)=>{
 
 });
 
-app.get('/seller/:id/toko', async(req,res)=>{
+app.get('/seller/:id/toko', async (req, res) => {
 
-  try{
+  try {
 
     const rows = await q(`
       SELECT *
       FROM seller_toko
       WHERE seller_id=?
       ORDER BY nama_toko ASC
-    `,[req.params.id]);
+    `, [req.params.id]);
 
     res.json(rows);
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
 
@@ -968,7 +989,7 @@ app.get('/beli', async (req, res) => {
 // PROSES PEMBELIAN
 // ==========================================
 
-app.post('/beli', async (req, res) => {
+app.post('/beli', upload.single('gambar'), async (req, res) => {
 
   try {
 
@@ -981,7 +1002,9 @@ app.post('/beli', async (req, res) => {
       harga,
       harga_modal,
       keterangan,
-      cabang_id
+      cabang_id,
+      posisi_pengambilan
+
 
     } = req.body;
 
@@ -995,7 +1018,8 @@ app.post('/beli', async (req, res) => {
       !produk_id ||
       !jumlah ||
       !harga ||
-      !cabang_id
+      !cabang_id ||
+      !posisi_pengambilan
     ) {
 
       return res.status(400).send(
@@ -1003,6 +1027,11 @@ app.post('/beli', async (req, res) => {
       );
 
     }
+
+    const gambar =
+      req.file
+        ? req.file.filename
+        : null;
 
     const pid =
       parseInt(produk_id);
@@ -1056,13 +1085,15 @@ app.post('/beli', async (req, res) => {
         harga,
         harga_modal,
         keterangan,
+        gambar,
+        posisi_pengambilan,
         cabang_id,
         status,
         tanggal
       )
       VALUES
       (
-        ?, ?, ?, ?, ?, ?, ?, ?, 2, NOW()
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, NOW()
       )
     `, [
 
@@ -1073,6 +1104,8 @@ app.post('/beli', async (req, res) => {
       harga,
       harga_modal || 0,
       keterangan || '',
+      gambar,
+      posisi_pengambilan || '',
       cid
 
     ]);
@@ -1291,7 +1324,7 @@ app.post('/pembelian/toggle/:id', async (req, res) => {
 
       await rollback();
 
-    } catch (_) {}
+    } catch (_) { }
 
     return res.status(500).json({
 
@@ -1436,7 +1469,7 @@ app.post('/pembelian/complete/:id', async (req, res) => {
 
       await rollback();
 
-    } catch (_) {}
+    } catch (_) { }
 
     return res.status(500).send(
       'Gagal menyelesaikan pembelian.'
@@ -1457,9 +1490,9 @@ app.post('/cancel/:id', async (req, res) => {
       FROM pembelian
       WHERE id = ?
       LIMIT 1
-    `,[id]);
+    `, [id]);
 
-    if(!rows.length){
+    if (!rows.length) {
       return res.redirect('/');
     }
 
@@ -1469,7 +1502,7 @@ app.post('/cancel/:id', async (req, res) => {
 
     // jika sebelumnya selesai
     // stok dikembalikan
-    if(pb.status == 1){
+    if (pb.status == 1) {
 
       await q(`
         INSERT INTO stock_cabang
@@ -1483,7 +1516,7 @@ app.post('/cancel/:id', async (req, res) => {
         ON DUPLICATE KEY UPDATE
 
         jumlah = jumlah + VALUES(jumlah)
-      `,[
+      `, [
         pb.produk_id,
         pb.cabang_id,
         pb.jumlah
@@ -1495,43 +1528,266 @@ app.post('/cancel/:id', async (req, res) => {
       UPDATE pembelian
       SET status = 3
       WHERE id = ?
-    `,[id]);
+    `, [id]);
 
     await commit();
 
     res.redirect('/');
 
-  } catch(err){
+  } catch (err) {
 
     console.error(err);
 
-    try{
+    try {
       await rollback();
-    }catch(e){}
+    } catch (e) { }
 
     res.status(500).send('Gagal cancel pembelian');
   }
 });
 
-const fs = require('fs');
-const multer = require('multer');
+app.get('/beli/edit/:id', async (req, res) => {
 
-// pastikan folder media ada
-const mediaDir = path.join(__dirname, 'media');
-if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+  try {
 
-// multer setup: simpan di folder /media
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, mediaDir);
-  },
-  filename: function (req, file, cb) {
-    // buat nama unik: timestamp + originalname
-    const name = Date.now() + '_' + file.originalname.replace(/\s+/g, '_');
-    cb(null, name);
+    const id = parseInt(req.params.id);
+
+    const rows = await q(`
+            SELECT *
+            FROM pembelian
+            WHERE id=?
+        `, [id]);
+
+    if (rows.length == 0)
+      return res.send("Data tidak ditemukan");
+
+    const seller = await q(`
+            SELECT *
+            FROM seller
+            ORDER BY nama_seller
+        `);
+
+    const toko = await q(`
+            SELECT *
+            FROM seller_toko
+            ORDER BY nama_toko
+        `);
+
+    const produk = await q(`
+            SELECT
+                p.*,
+
+                COALESCE(jkt.jumlah,0) stok_jakarta,
+                COALESCE(smg.jumlah,0) stok_semarang
+
+            FROM produk p
+
+            LEFT JOIN stock_cabang jkt
+            ON jkt.produk_id=p.id
+            AND jkt.cabang_id=1
+
+            LEFT JOIN stock_cabang smg
+            ON smg.produk_id=p.id
+            AND smg.cabang_id=2
+
+            ORDER BY p.nama
+        `);
+
+    res.render("beli_edit", {
+
+      pembelian: rows[0],
+      seller,
+      toko,
+      produk
+
+    });
+
+  } catch (err) {
+
+    console.log(err);
+
+    res.status(500).send(err.message);
+
   }
+
 });
-const upload = multer({ storage });
+
+// ==========================================
+// EDIT PEMBELIAN
+// ==========================================
+app.post('/beli/edit/:id', upload.single('gambar'), async (req, res) => {
+
+  try {
+
+    const id = parseInt(req.params.id);
+
+    if (!id)
+      return res.status(400).send('ID tidak valid');
+
+    const {
+
+      seller_id,
+      toko_id,
+      produk_id,
+      jumlah,
+      harga,
+      harga_modal,
+      keterangan,
+      posisi_pengambilan,
+      cabang_id
+
+    } = req.body;
+
+    // ==========================
+    // Ambil data lama
+    // ==========================
+    const oldRows = await q(`
+            SELECT *
+            FROM pembelian
+            WHERE id=?
+            LIMIT 1
+        `, [id]);
+
+    if (oldRows.length == 0)
+      return res.status(404).send("Data tidak ditemukan");
+
+    const old = oldRows[0];
+
+    const oldProduk = parseInt(old.produk_id);
+    const oldCabang = parseInt(old.cabang_id);
+    const oldQty = parseInt(old.jumlah);
+
+    const newProduk = parseInt(produk_id);
+    const newCabang = parseInt(cabang_id);
+    const newQty = parseInt(jumlah);
+
+    await beginTransaction();
+
+    // ======================================
+    // KEMBALIKAN STOK LAMA
+    // ======================================
+
+    await q(`
+            UPDATE stock_cabang
+            SET jumlah = jumlah + ?
+            WHERE produk_id=?
+            AND cabang_id=?
+        `, [
+      oldQty,
+      oldProduk,
+      oldCabang
+    ]);
+
+    // ======================================
+    // CEK STOK BARU
+    // ======================================
+
+    const stok = await q(`
+            SELECT jumlah
+            FROM stock_cabang
+            WHERE produk_id=?
+            AND cabang_id=?
+        `, [
+      newProduk,
+      newCabang
+    ]);
+
+    const tersedia =
+      stok.length
+        ? parseInt(stok[0].jumlah)
+        : 0;
+
+    if (tersedia < newQty) {
+
+      await rollback();
+
+      return res.send(
+        `Stok tidak cukup. Sisa ${tersedia}`
+      );
+
+    }
+
+    // ======================================
+    // POTONG STOK BARU
+    // ======================================
+
+    await q(`
+            UPDATE stock_cabang
+            SET jumlah = jumlah - ?
+            WHERE produk_id=?
+            AND cabang_id=?
+        `, [
+      newQty,
+      newProduk,
+      newCabang
+    ]);
+
+    // ======================================
+    // GAMBAR
+    // ======================================
+
+    let gambar = old.gambar;
+
+    if (req.file) {
+
+      gambar = req.file.filename;
+
+    }
+
+    // ======================================
+    // UPDATE PEMBELIAN
+    // ======================================
+
+    await q(`
+            UPDATE pembelian
+            SET
+
+                seller_id=?,
+                toko_id=?,
+                produk_id=?,
+                jumlah=?,
+                harga=?,
+                harga_modal=?,
+                keterangan=?,
+                posisi_pengambilan=?,
+                cabang_id=?,
+                gambar=?
+
+            WHERE id=?
+
+        `, [
+
+      seller_id,
+      toko_id,
+      newProduk,
+      newQty,
+      harga,
+      harga_modal,
+      keterangan,
+      posisi_pengambilan,
+      newCabang,
+      gambar,
+      id
+
+    ]);
+
+    await commit();
+
+    res.redirect('/');
+
+  } catch (err) {
+
+    console.log(err);
+
+    try {
+      await rollback();
+    } catch (e) { }
+
+    res.status(500).send(err.message);
+
+  }
+
+});
 
 // ========== EXPORT PDF PEMBELIAN ==========
 app.get('/export/pembelian/pdf', async (req, res) => {
@@ -1572,7 +1828,8 @@ app.get('/export/pembelian/pdf', async (req, res) => {
     }
 
     // seller
-    if ( seller_id && seller_id !== 'all' ) { where += ` AND p.seller_id = ? `;
+    if (seller_id && seller_id !== 'all') {
+      where += ` AND p.seller_id = ? `;
       params.push(
         parseInt(seller_id)
       );
@@ -1614,7 +1871,7 @@ app.get('/export/pembelian/pdf', async (req, res) => {
       ORDER BY p.tanggal DESC
     `;
 
-    const rows = await q( sql, params );
+    const rows = await q(sql, params);
 
     const PDFDocument = require('pdfkit');
 
@@ -1792,23 +2049,23 @@ app.get('/export/pembelian/pdf', async (req, res) => {
 
       let statusText = 'Pending';
 
-        if (Number(r.status) === 1) {
+      if (Number(r.status) === 1) {
 
-          statusText = 'Selesai';
+        statusText = 'Selesai';
 
-        }
-        else if (
-          Number(r.status) === 3
-        ) {
+      }
+      else if (
+        Number(r.status) === 3
+      ) {
 
-          statusText = 'Cancel';
+        statusText = 'Cancel';
 
-        }
+      }
 
       const tanggal =
         r.tanggal
           ? new Date(r.tanggal)
-              .toLocaleString('id-ID')
+            .toLocaleString('id-ID')
           : '-';
 
       // =============================
@@ -2284,64 +2541,64 @@ const uploadExcel = multer({
 
 app.post('/produk/import-excel', uploadExcel.single('excel'), async (req, res) => {
 
-    try {
+  try {
 
-      if (!req.file) {
-        return res.status(400).send('File wajib diupload');
-      }
+    if (!req.file) {
+      return res.status(400).send('File wajib diupload');
+    }
 
-      const workbook = XLSX.readFile(req.file.path);
+    const workbook = XLSX.readFile(req.file.path);
 
-      const sheetName = workbook.SheetNames[0];
+    const sheetName = workbook.SheetNames[0];
 
-      const sheet = workbook.Sheets[sheetName];
+    const sheet = workbook.Sheets[sheetName];
 
-      const data = XLSX.utils.sheet_to_json(sheet);
+    const data = XLSX.utils.sheet_to_json(sheet);
 
-      for (const row of data) {
+    for (const row of data) {
 
-        const kode_produk = row.kode_produk
-          ? String(row.kode_produk).trim().toUpperCase()
-          : null;
+      const kode_produk = row.kode_produk
+        ? String(row.kode_produk).trim().toUpperCase()
+        : null;
 
-        const nama = row.nama
-          ? String(row.nama).trim()
-          : null;
+      const nama = row.nama
+        ? String(row.nama).trim()
+        : null;
 
-        const stok = parseInt(row.stok || 0);
+      const stok = parseInt(row.stok || 0);
 
-        const keterangan = row.keterangan
-          ? String(row.keterangan).trim()
-          : null;
+      const keterangan = row.keterangan
+        ? String(row.keterangan).trim()
+        : null;
 
-        const posisi = row.posisi
-          ? String(row.posisi).trim()
-          : null;
+      const posisi = row.posisi
+        ? String(row.posisi).trim()
+        : null;
 
-        if (!nama) continue;
+      if (!nama) continue;
 
-        // cek produk existing
-        const existing = await q(
-          'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
-          [kode_produk]
-        );
+      // cek produk existing
+      const existing = await q(
+        'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
+        [kode_produk]
+      );
 
-        if (existing.length > 0) {
+      if (existing.length > 0) {
 
-          const produkId = existing[0].id;
+        const produkId = existing[0].id;
 
-          // update stok
-          await q(`
+        // update stok
+        await q(`
             INSERT INTO stock_cabang (produk_id, cabang_id, jumlah)
             VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE
             jumlah = jumlah + VALUES(jumlah)
           `, [produkId, stok]);
 
-        } else {
+      } else {
 
-          // insert produk dulu
-const ins = await q(`
+        // insert produk dulu
+        const ins = await q(`
   INSERT INTO produk
   (
     nama,
@@ -2350,36 +2607,36 @@ const ins = await q(`
   )
   VALUES (?, ?, ?)
 `, [
-  nama,
-  '',
-  keterangan
-]);
+          nama,
+          '',
+          keterangan
+        ]);
 
-const produkId = ins.insertId;
+        const produkId = ins.insertId;
 
-// update kode produk setelah insert
-await q(`
+        // update kode produk setelah insert
+        await q(`
   UPDATE produk
   SET kode_produk = ?
   WHERE id = ?
 `, [
-  nextKode,
-  produkId
-]);
+          nextKode,
+          produkId
+        ]);
 
-console.log('KODE PRODUK:', nextKode);
-        }
+        console.log('KODE PRODUK:', nextKode);
       }
-
-      return res.redirect('/produk');
-
-    } catch (err) {
-
-      console.error(err);
-
-      return res.status(500).send('Gagal import excel');
     }
+
+    return res.redirect('/produk');
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(500).send('Gagal import excel');
   }
+}
 );
 
 const mammoth = require('mammoth');
@@ -2392,33 +2649,33 @@ const uploadWord = multer({
 
 app.post('/produk/import-word', uploadWord.single('word'), async (req, res) => {
 
-    try {
+  try {
 
-      if (!req.file) {
-        return res.status(400).send('File wajib diupload');
-      }
+    if (!req.file) {
+      return res.status(400).send('File wajib diupload');
+    }
 
-      // baca word
-      const result = await mammoth.extractRawText({
-        path: req.file.path
-      });
+    // baca word
+    const result = await mammoth.extractRawText({
+      path: req.file.path
+    });
 
-      const text = result.value;
+    const text = result.value;
 
-      const lines = text
-        .split('\n')
-        .map(v => v.trim())
-        .filter(v => v);
+    const lines = text
+      .split('\n')
+      .map(v => v.trim())
+      .filter(v => v);
 
-      // =========================
-      // MULAI LOOP
-      // =========================
+    // =========================
+    // MULAI LOOP
+    // =========================
 
-      // ======================================
-      // AMBIL NOMOR TERAKHIR
-      // ======================================
+    // ======================================
+    // AMBIL NOMOR TERAKHIR
+    // ======================================
 
-      const lastProduk = await q(`
+    const lastProduk = await q(`
         SELECT kode_produk
         FROM produk
         WHERE kode_produk REGEXP '^P[0-9]+$'
@@ -2426,99 +2683,99 @@ app.post('/produk/import-word', uploadWord.single('word'), async (req, res) => {
         LIMIT 1
       `);
 
-      let nomor = 1;
+    let nomor = 1;
 
-      if (lastProduk.length > 0) {
+    if (lastProduk.length > 0) {
 
-        nomor =
-          parseInt(
-            lastProduk[0].kode_produk.replace('P', '')
-          ) + 1;
+      nomor =
+        parseInt(
+          lastProduk[0].kode_produk.replace('P', '')
+        ) + 1;
 
+    }
+
+    let berhasil = 0;
+
+    for (const line of lines) {
+
+      console.log('LINE:', line);
+
+      if (line.length < 3) {
+        continue;
       }
 
-      let berhasil = 0;
+      // batasi panjang nama
+      let namaProduk = line.trim();
 
-      for (const line of lines) {
+      if (namaProduk.length > 95) {
+        namaProduk = namaProduk.substring(0, 95);
+      }
 
-        console.log('LINE:', line);
+      // kode produk otomatis
+      const kodeProduk = 'P' + nomor;
 
-        if (line.length < 3) {
-          continue;
-        }
+      // =========================
+      // DETEKSI BRAND
+      // =========================
 
-        // batasi panjang nama
-        let namaProduk = line.trim();
+      let brandName = 'RANDOM';
 
-        if (namaProduk.length > 95) {
-          namaProduk = namaProduk.substring(0, 95);
-        }
+      const upperNama = namaProduk.toUpperCase();
 
-        // kode produk otomatis
-        const kodeProduk = 'P' + nomor;
+      if (upperNama.includes('ASUS')) {
+        brandName = 'ASUS';
+      }
+      else if (upperNama.includes('ACER')) {
+        brandName = 'ACER';
+      }
+      else if (upperNama.includes('ADVAN')) {
+        brandName = 'ADVAN';
+      }
+      else if (upperNama.includes('AXIOO')) {
+        brandName = 'AXIOO';
+      }
+      else if (upperNama.includes('DELL')) {
+        brandName = 'DELL';
+      }
+      else if (upperNama.includes('HP')) {
+        brandName = 'HP';
+      }
+      else if (upperNama.includes('LENOVO')) {
+        brandName = 'LENOVO';
+      }
+      else if (upperNama.includes('SAMSUNG')) {
+        brandName = 'SAMSUNG';
+      }
+      else if (upperNama.includes('ZYREX')) {
+        brandName = 'ZYREX';
+      }
 
-        // =========================
-        // DETEKSI BRAND
-        // =========================
+      // cari brand_id
+      const brandResult = await q(
+        'SELECT id FROM brand WHERE UPPER(nama) = ? LIMIT 1',
+        [brandName]
+      );
 
-        let brandName = 'RANDOM';
+      let brandId = null;
 
-        const upperNama = namaProduk.toUpperCase();
+      if (brandResult.length > 0) {
+        brandId = brandResult[0].id;
+      }
 
-        if (upperNama.includes('ASUS')) {
-          brandName = 'ASUS';
-        }
-        else if (upperNama.includes('ACER')) {
-          brandName = 'ACER';
-        }
-        else if (upperNama.includes('ADVAN')) {
-          brandName = 'ADVAN';
-        }
-        else if (upperNama.includes('AXIOO')) {
-          brandName = 'AXIOO';
-        }
-        else if (upperNama.includes('DELL')) {
-          brandName = 'DELL';
-        }
-        else if (upperNama.includes('HP')) {
-          brandName = 'HP';
-        }
-        else if (upperNama.includes('LENOVO')) {
-          brandName = 'LENOVO';
-        }
-        else if (upperNama.includes('SAMSUNG')) {
-          brandName = 'SAMSUNG';
-        }
-        else if (upperNama.includes('ZYREX')) {
-          brandName = 'ZYREX';
-        }
+      // cek duplikat
+      const cek = await q(
+        'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
+        [kodeProduk]
+      );
 
-        // cari brand_id
-        const brandResult = await q(
-          'SELECT id FROM brand WHERE UPPER(nama) = ? LIMIT 1',
-          [brandName]
-        );
+      if (cek.length > 0) {
+        console.log('SKIP:', kodeProduk);
+        nomor++;
+        continue;
+      }
 
-        let brandId = null;
-
-        if (brandResult.length > 0) {
-          brandId = brandResult[0].id;
-        }
-
-        // cek duplikat
-        const cek = await q(
-          'SELECT id FROM produk WHERE kode_produk = ? LIMIT 1',
-          [kodeProduk]
-        );
-
-        if (cek.length > 0) {
-          console.log('SKIP:', kodeProduk);
-          nomor++;
-          continue;
-        }
-
-        // insert produk
-        const ins = await q(`
+      // insert produk
+      const ins = await q(`
           INSERT INTO produk
           (
             kode_produk,
@@ -2529,15 +2786,15 @@ app.post('/produk/import-word', uploadWord.single('word'), async (req, res) => {
           )
           VALUES (?, ?, ?, ?, ?)
         `, [
-          kodeProduk,
-          namaProduk,
-          '',
-          '',
-          brandId
-        ]);
+        kodeProduk,
+        namaProduk,
+        '',
+        '',
+        brandId
+      ]);
 
-        // stok otomatis
-        await q(`
+      // stok otomatis
+      await q(`
           INSERT INTO stock_cabang
           (
             produk_id,
@@ -2546,34 +2803,34 @@ app.post('/produk/import-word', uploadWord.single('word'), async (req, res) => {
           )
           VALUES (?, ?, ?)
         `, [
-          ins.insertId,
-          1, // Jakarta
-          1
-        ]);
+        ins.insertId,
+        1, // Jakarta
+        1
+      ]);
 
-        console.log(
-          'BERHASIL:',
-          kodeProduk,
-          namaProduk,
-          'BRAND:',
-          brandName
-        );
+      console.log(
+        'BERHASIL:',
+        kodeProduk,
+        namaProduk,
+        'BRAND:',
+        brandName
+      );
 
-        nomor++;
-        berhasil++;
-      }
-
-      console.log('TOTAL BERHASIL:', berhasil);
-
-      return res.redirect('/produk');
-
-    } catch (err) {
-
-      console.error(err);
-
-      return res.status(500).send('Gagal import word');
+      nomor++;
+      berhasil++;
     }
+
+    console.log('TOTAL BERHASIL:', berhasil);
+
+    return res.redirect('/produk');
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(500).send('Gagal import word');
   }
+}
 );
 
 // ======================================================
@@ -2691,9 +2948,9 @@ app.post('/stok-semarang/tambah', async (req, res) => {
 
 });
 
-app.get('/stok-semarang/lihat/:id', async (req,res)=>{
+app.get('/stok-semarang/lihat/:id', async (req, res) => {
 
-  try{
+  try {
 
     const rows = await q(`
       SELECT
@@ -2704,17 +2961,17 @@ app.get('/stok-semarang/lihat/:id', async (req,res)=>{
         ON sc.produk_id = p.id
         AND sc.cabang_id = 2
       WHERE p.id=?
-    `,[req.params.id]);
+    `, [req.params.id]);
 
-    if(!rows.length){
+    if (!rows.length) {
       return res.send('Produk tidak ditemukan');
     }
 
-    res.render('detail_produk_semarang',{
+    res.render('detail_produk_semarang', {
       produk: rows[0]
     });
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
     res.status(500).send(err.message);
@@ -2723,9 +2980,9 @@ app.get('/stok-semarang/lihat/:id', async (req,res)=>{
 
 });
 
-app.get('/stok-semarang/edit/:id', async (req,res)=>{
+app.get('/stok-semarang/edit/:id', async (req, res) => {
 
-  try{
+  try {
 
     const rows = await q(`
       SELECT
@@ -2736,13 +2993,13 @@ app.get('/stok-semarang/edit/:id', async (req,res)=>{
         ON sc.produk_id=p.id
         AND sc.cabang_id=2
       WHERE p.id=?
-    `,[req.params.id]);
+    `, [req.params.id]);
 
-    res.render('edit_produk_semarang',{
+    res.render('edit_produk_semarang', {
       produk: rows[0]
     });
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
     res.status(500).send(err.message);
@@ -2751,9 +3008,9 @@ app.get('/stok-semarang/edit/:id', async (req,res)=>{
 
 });
 
-app.post('/stok-semarang/edit/:id', async (req,res)=>{
+app.post('/stok-semarang/edit/:id', async (req, res) => {
 
-  try{
+  try {
 
     const {
       kode_produk,
@@ -2771,7 +3028,7 @@ app.post('/stok-semarang/edit/:id', async (req,res)=>{
         posisi=?,
         keterangan=?
       WHERE id=?
-    `,[
+    `, [
       kode_produk,
       nama,
       posisi,
@@ -2784,14 +3041,14 @@ app.post('/stok-semarang/edit/:id', async (req,res)=>{
       SET jumlah=?
       WHERE produk_id=?
       AND cabang_id=2
-    `,[
+    `, [
       stok_semarang,
       req.params.id
     ]);
 
     res.redirect('/stok/semarang');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
     res.status(500).send(err.message);
@@ -2800,19 +3057,19 @@ app.post('/stok-semarang/edit/:id', async (req,res)=>{
 
 });
 
-app.post('/stok-semarang/hapus/:id', async (req,res)=>{
+app.post('/stok-semarang/hapus/:id', async (req, res) => {
 
-  try{
+  try {
 
     await q(`
       DELETE FROM stock_cabang
       WHERE produk_id=?
       AND cabang_id=2
-    `,[req.params.id]);
+    `, [req.params.id]);
 
     res.redirect('/stok/semarang');
 
-  }catch(err){
+  } catch (err) {
 
     console.error(err);
     res.status(500).send(err.message);
@@ -2998,9 +3255,9 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
     rows.forEach((item, index) => {
 
       const stok =
-      Number(item.stok_semarang || 0);
+        Number(item.stok_semarang || 0);
 
-    totalUnit += stok;
+      totalUnit += stok;
 
       const modal =
         Number(item.harga_modal || 0);
@@ -3121,9 +3378,9 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
 
       // garis bawah tiap row
       doc.moveTo(20, y + rowHeight - 3)
-         .lineTo(820, y + rowHeight - 3)
-         .strokeColor('#dddddd')
-         .stroke();
+        .lineTo(820, y + rowHeight - 3)
+        .strokeColor('#dddddd')
+        .stroke();
 
       y += rowHeight;
 
@@ -3701,8 +3958,8 @@ app.get('/produk/:id', async (req, res) => {
 
     const stok =
       stokRows.length > 0
-      ? stokRows[0].jumlah
-      : 0;
+        ? stokRows[0].jumlah
+        : 0;
 
     // =========================================
     // AMBIL BRANDS
@@ -3995,142 +4252,142 @@ app.post('/produk/:id/delete', async (req, res) => {
 
 app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
 
-    try {
+  try {
 
-      const id = parseInt(
-        req.params.id,
-        10
-      );
+    const id = parseInt(
+      req.params.id,
+      10
+    );
 
-      if (!id) {
+    if (!id) {
 
-        return res
-          .status(404)
-          .send('Produk tidak ditemukan.');
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
 
-      }
+    }
 
-      // ======================================================
-      // FORM DATA
-      // ======================================================
+    // ======================================================
+    // FORM DATA
+    // ======================================================
 
-      const nama =
-        (req.body.nama || '').trim();
+    const nama =
+      (req.body.nama || '').trim();
 
-      const kode_produk =
-        req.body.kode_produk
-          ? req.body.kode_produk
-              .trim()
-              .toUpperCase()
-          : null;
+    const kode_produk =
+      req.body.kode_produk
+        ? req.body.kode_produk
+          .trim()
+          .toUpperCase()
+        : null;
 
-      const keterangan =
-        req.body.keterangan
-          ? req.body.keterangan.trim()
-          : null;
+    const keterangan =
+      req.body.keterangan
+        ? req.body.keterangan.trim()
+        : null;
 
-      const brand_id =
-        req.body.brand_id
-          ? (
-              parseInt(
-                req.body.brand_id,
-                10
-              ) || null
-            )
-          : null;
+    const brand_id =
+      req.body.brand_id
+        ? (
+          parseInt(
+            req.body.brand_id,
+            10
+          ) || null
+        )
+        : null;
 
-      const posisi =
-        req.body.posisi
-          ? (
-              req.body.posisi.trim()
-              || null
-            )
-          : null;
+    const posisi =
+      req.body.posisi
+        ? (
+          req.body.posisi.trim()
+          || null
+        )
+        : null;
 
-      const harga_modal =
-        parseFloat(req.body.harga_modal) || 0;
+    const harga_modal =
+      parseFloat(req.body.harga_modal) || 0;
 
-      const harga_jual =
-        parseFloat(req.body.harga_jual) || 0;
+    const harga_jual =
+      parseFloat(req.body.harga_jual) || 0;
 
-      // ======================================================
-      // STOK CABANG
-      // ======================================================
+    // ======================================================
+    // STOK CABANG
+    // ======================================================
 
-      const stok_jakarta =
-        parseInt(
-          req.body.stok_jakarta
-        ) || 0;
+    const stok_jakarta =
+      parseInt(
+        req.body.stok_jakarta
+      ) || 0;
 
-      const stok_semarang =
-        parseInt(
-          req.body.stok_semarang
-        ) || 0;
+    const stok_semarang =
+      parseInt(
+        req.body.stok_semarang
+      ) || 0;
 
-      if (!nama) {
+    if (!nama) {
 
-        return res
-          .status(400)
-          .send(
-            'Nama produk wajib diisi.'
-          );
+      return res
+        .status(400)
+        .send(
+          'Nama produk wajib diisi.'
+        );
 
-      }
+    }
 
-      // ======================================================
-      // AMBIL GAMBAR LAMA
-      // ======================================================
+    // ======================================================
+    // AMBIL GAMBAR LAMA
+    // ======================================================
 
-      const curRows = await q(`
+    const curRows = await q(`
         SELECT gambar
         FROM produk
         WHERE id = ?
         LIMIT 1
       `, [id]);
 
-      if (!curRows.length) {
+    if (!curRows.length) {
 
-        return res
-          .status(404)
-          .send('Produk tidak ditemukan.');
+      return res
+        .status(404)
+        .send('Produk tidak ditemukan.');
 
-      }
+    }
 
-      let currentGambar =
-        curRows[0].gambar || '';
+    let currentGambar =
+      curRows[0].gambar || '';
 
-      // ======================================================
-      // JIKA ADA UPLOAD GAMBAR BARU
-      // ======================================================
+    // ======================================================
+    // JIKA ADA UPLOAD GAMBAR BARU
+    // ======================================================
 
-      if (
-        req.files &&
-        req.files.length > 0
-      ) {
+    if (
+      req.files &&
+      req.files.length > 0
+    ) {
 
-        const newFiles =
-          req.files
-            .map(f => f.filename)
-            .join(',');
+      const newFiles =
+        req.files
+          .map(f => f.filename)
+          .join(',');
 
-        currentGambar =
-          currentGambar
-            ? (
-                currentGambar
-                +
-                ','
-                +
-                newFiles
-              )
-            : newFiles;
+      currentGambar =
+        currentGambar
+          ? (
+            currentGambar
+            +
+            ','
+            +
+            newFiles
+          )
+          : newFiles;
 
-      }
+    }
 
-      // ======================================================
-      // UPDATE PRODUK
-      // ======================================================
+    // ======================================================
+    // UPDATE PRODUK
+    // ======================================================
 
-      await q(`
+    await q(`
         UPDATE produk
         SET
 
@@ -4146,24 +4403,24 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
         WHERE id = ?
       `, [
 
-        nama,
-        kode_produk,
-        keterangan,
-        currentGambar,
-        brand_id,
-        posisi,
-        harga_modal,
-        harga_jual,
-        id
+      nama,
+      kode_produk,
+      keterangan,
+      currentGambar,
+      brand_id,
+      posisi,
+      harga_modal,
+      harga_jual,
+      id
 
-      ]);
+    ]);
 
-      // ======================================================
-      // UPDATE STOK JAKARTA
-      // cabang_id = 1
-      // ======================================================
+    // ======================================================
+    // UPDATE STOK JAKARTA
+    // cabang_id = 1
+    // ======================================================
 
-      await q(`
+    await q(`
         INSERT INTO stock_cabang
         (
           produk_id,
@@ -4178,17 +4435,17 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
         jumlah = VALUES(jumlah)
       `, [
 
-        id,
-        stok_jakarta
+      id,
+      stok_jakarta
 
-      ]);
+    ]);
 
-      // ======================================================
-      // UPDATE STOK SEMARANG
-      // cabang_id = 2
-      // ======================================================
+    // ======================================================
+    // UPDATE STOK SEMARANG
+    // cabang_id = 2
+    // ======================================================
 
-      await q(`
+    await q(`
         INSERT INTO stock_cabang
         (
           produk_id,
@@ -4203,35 +4460,35 @@ app.post('/produk/:id', upload.array('gambar', 6), async (req, res) => {
         jumlah = VALUES(jumlah)
       `, [
 
-        id,
-        stok_semarang
+      id,
+      stok_semarang
 
-      ]);
+    ]);
 
-      // ======================================================
-      // REDIRECT
-      // ======================================================
+    // ======================================================
+    // REDIRECT
+    // ======================================================
 
-      return res.redirect(
-        '/produk/' + id
+    return res.redirect(
+      '/produk/' + id
+    );
+
+  } catch (err) {
+
+    console.error(
+      'POST /produk/:id error:',
+      err
+    );
+
+    return res
+      .status(500)
+      .send(
+        'Gagal memperbarui produk.'
       );
-
-    } catch (err) {
-
-      console.error(
-        'POST /produk/:id error:',
-        err
-      );
-
-      return res
-        .status(500)
-        .send(
-          'Gagal memperbarui produk.'
-        );
-
-    }
 
   }
+
+}
 );
 
 // ======================================================
@@ -4690,7 +4947,7 @@ app.post('/brands', async (req, res) => {
 // ---------- BARANG MASUK ----------
 app.get('/barang-masuk', async (req, res) => {
   try {
-    const produk = await q('SELECT id, nama FROM produk ORDER BY nama ASC');
+    const produk = await q('SELECT id, nama FROM produk ORDER BY nama desc');
     res.render('barang_masuk', { produk });
   } catch (err) {
     console.error('GET /barang-masuk error:', err);
@@ -4704,21 +4961,26 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
     console.log('--- POST /barang-masuk incoming ---');
     console.log('Body keys:', Object.keys(req.body));
     // jangan stringify req.body langsung kalau ada file besar; cukup preview
-    console.log('Body preview:', Object.keys(req.body).reduce((o,k)=>{ o[k]=req.body[k]; return o; }, {}));
+    console.log('Body preview:', Object.keys(req.body).reduce((o, k) => { o[k] = req.body[k]; return o; }, {}));
 
     const pengirim = (req.body.pengirim || '').trim();
+    const penerima = (req.body.penerima || '').trim();
     const cabangId = parseInt(req.body.cabang_id);
 
     if (!pengirim)
-        return res.status(400).send('Pengirim wajib diisi.');
+      return res.status(400).send('Pengirim wajib diisi.');
+
+    if (!penerima)
+      return res.status(400).send('Penerima wajib diisi.');
 
     if (!cabangId)
-        return res.status(400).send('Cabang wajib dipilih.');
+      return res.status(400).send('Cabang wajib dipilih.');
 
     // Build items from arrays in req.body
     const produkArr = req.body['produk[]'] ?? req.body.produk ?? [];
     const produkNamaArr = req.body['produk_nama[]'] ?? req.body.produk_nama ?? [];
     const jumlahArr = req.body['jumlah[]'] ?? req.body.jumlah ?? [];
+    const hargaArr = req.body['harga[]'] ?? req.body.harga ?? [];
     const ketArr = req.body['keterangan[]'] ?? req.body.keterangan ?? [];
 
     // normalize to arrays
@@ -4726,6 +4988,7 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
     const produkList = toArray(produkArr);
     const produkNamaList = toArray(produkNamaArr);
     const jumlahList = toArray(jumlahArr);
+    const hargaList = toArray(hargaArr);
     const ketList = toArray(ketArr);
 
     // files from multer (ordered)
@@ -4738,6 +5001,7 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
       const pVal = produkList[i];
       const pNama = produkNamaList[i] || '';
       const jumlah = parseInt(jumlahList[i], 10) || 0;
+      const harga = parseFloat(hargaList[i]) || 0;
       const keterangan = (ketList[i] || '').trim() || null;
       const file = files[i]; // may be undefined
       if ((!pVal || pVal === '') && (!pNama || pNama === '')) continue;
@@ -4750,6 +5014,7 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
         it.produk_nama = (pNama || '').trim();
       }
       it.jumlah = jumlah;
+      it.harga = harga;
       it.keterangan = keterangan;
       it.gambar_filename = file ? file.filename : null; // simpan filename
       items.push(it);
@@ -4781,21 +5046,21 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
 
           let nextKode = 'P1';
 
-          if(last.length){
+          if (last.length) {
 
-              const no =
-                  parseInt(
-                      last[0].kode_produk.replace(/P/i,'')
-                  ) || 0;
+            const no =
+              parseInt(
+                last[0].kode_produk.replace(/P/i, '')
+              ) || 0;
 
-              nextKode = 'P' + (no + 1);
+            nextKode = 'P' + (no + 1);
 
           }
 
           const insP = await q(`
               INSERT INTO produk
-              ( kode_produk, nama, gambar, keterangan ) VALUES (?, ?, ?, ?)`,[
-              nextKode, raw, '', null
+              ( kode_produk, nama, gambar, keterangan ) VALUES (?, ?, ?, ?)`, [
+            nextKode, raw, '', null
           ]);
 
           items[i].produk_id = insP.insertId;
@@ -4803,12 +5068,13 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
           // ===============================
           // BUAT STOK CABANG
           // ===============================
-          await q(`INSERT INTO stock_cabang ( produk_id, cabang_id, jumlah) VALUES (?,1,0), (?,2,0) ON DUPLICATE KEY UPDATE jumlah = jumlah`,[insP.insertId,insP.insertId]);
+          await q(`INSERT INTO stock_cabang ( produk_id, cabang_id, jumlah) VALUES (?,1,0), (?,2,0) ON DUPLICATE KEY UPDATE jumlah = jumlah`, [insP.insertId, insP.insertId]);
           console.log(`Produk baru dibuat: "${raw}" -> id ${items[i].produk_id}`);
         }
       }
       // ensure numbers
       items[i].jumlah = parseInt(items[i].jumlah, 10) || 0;
+      items[i].harga = parseFloat(items[i].harga) || 0;
     }
 
     // filter valid
@@ -4817,17 +5083,17 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
 
     // DB transaction: insert barang_masuk, detail (termasuk gambar), update stock
     await beginTransaction();
-    const resBM = await q('INSERT INTO barang_masuk (pengirim) VALUES (?)', [pengirim]);
+    const resBM = await q('INSERT INTO barang_masuk (pengirim, penerima) VALUES (?, ?)', [pengirim, penerima]);
     const barangMasukId = resBM.insertId;
 
     for (const it of validItems) {
       await q(
-        'INSERT INTO barang_masuk_detail (barang_masuk_id, produk_id, jumlah, keterangan, gambar) VALUES (?, ?, ?, ?, ?)',
-        [barangMasukId, it.produk_id, it.jumlah, it.keterangan, it.gambar_filename]
+        'INSERT INTO barang_masuk_detail (barang_masuk_id, produk_id, jumlah, harga, keterangan, gambar) VALUES (?, ?, ?, ?, ?, ?)',
+        [barangMasukId, it.produk_id, it.jumlah, it.harga, it.keterangan, it.gambar_filename]
       );
 
       // // update stock (insert or add)
-      await q(`INSERT INTO stock_cabang(produk_id, cabang_id, jumlah) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)`,[it.produk_id,cabangId,it.jumlah]);
+      await q(`INSERT INTO stock_cabang(produk_id, cabang_id, jumlah) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)`, [it.produk_id, cabangId, it.jumlah]);
     }
 
     await commit();
@@ -4835,7 +5101,7 @@ app.post('/barang-masuk', upload.array('gambar'), async (req, res) => {
     return res.redirect('/');
   } catch (err) {
     console.error('POST /barang-masuk error:', err);
-    try { await rollback(); } catch (_) {}
+    try { await rollback(); } catch (_) { }
     return res.status(500).send('Server error: ' + (err.message || err));
   }
 });
@@ -4853,7 +5119,7 @@ app.get('/barang-masuk/:id', async (req, res) => {
 
     // Ambil detail + nama produk + gambar dari tabel barang_masuk_detail (bukan produk)
     const details = await q(
-      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.keterangan, bmd.gambar, p.nama
+      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.harga, bmd.keterangan, bmd.gambar, p.nama
        FROM barang_masuk_detail bmd
        LEFT JOIN produk p ON bmd.produk_id = p.id
        WHERE bmd.barang_masuk_id = ?`,
@@ -4866,6 +5132,7 @@ app.get('/barang-masuk/:id', async (req, res) => {
       nama: d.nama,
       gambar_list: d.gambar ? d.gambar.split(',') : [], // bisa banyak gambar
       jumlah: d.jumlah,
+      harga: d.harga,
       keterangan: d.keterangan
     }));
 
@@ -4891,7 +5158,7 @@ app.get('/barang-masuk/:id/edit', async (req, res) => {
 
     // ambil detail
     const details = await q(
-      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.keterangan, p.nama
+      `SELECT bmd.id AS detail_id, bmd.produk_id, bmd.jumlah, bmd.harga, bmd.keterangan, p.nama
        FROM barang_masuk_detail bmd
        LEFT JOIN produk p ON bmd.produk_id = p.id
        WHERE bmd.barang_masuk_id = ?`,
@@ -4904,6 +5171,7 @@ app.get('/barang-masuk/:id/edit', async (req, res) => {
       produk_id: d.produk_id,
       produk_nama: d.nama,
       jumlah: d.jumlah,
+      harga: d.harga,
       keterangan: d.keterangan
     }));
 
@@ -4914,7 +5182,8 @@ app.get('/barang-masuk/:id/edit', async (req, res) => {
   }
 });
 
-app.post('/barang-masuk/:id/edit', async (req, res) => {
+app.post('/barang-masuk/:id/edit', upload.array('gambar'), async (req, res) => {
+
     try {
 
         const id = parseInt(req.params.id);
@@ -4929,20 +5198,18 @@ app.post('/barang-masuk/:id/edit', async (req, res) => {
 
         let incomingItems = parseItemsFromBody(req.body);
 
+        const files = req.files || [];
+
         if (!incomingItems.length)
             return res.status(400).send("Tidak ada item.");
-
-        // ===========================
-        // MULAI TRANSAKSI
-        // ===========================
 
         await beginTransaction();
 
         const cabangId = 1;
 
-        // ===========================
-        // RESOLVE PRODUK
-        // ===========================
+        // ===================================================
+        // RESOLVE PRODUK BARU
+        // ===================================================
 
         for (const item of incomingItems) {
 
@@ -4956,7 +5223,10 @@ app.post('/barang-masuk/:id/edit', async (req, res) => {
 
             } else {
 
-                const cek = await q(`SELECT id FROM produk WHERE LOWER(nama)=LOWER(?) LIMIT 1`, [raw]);
+                const cek = await q(
+                    `SELECT id FROM produk WHERE LOWER(nama)=LOWER(?) LIMIT 1`,
+                    [raw]
+                );
 
                 if (cek.length) {
 
@@ -4964,90 +5234,222 @@ app.post('/barang-masuk/:id/edit', async (req, res) => {
 
                 } else {
 
-                    const last = await q(`SELECT MAX(CAST(REPLACE(kode_produk,'P','') AS UNSIGNED)) no FROM produk`);
+                    const last = await q(`
+                        SELECT MAX(
+                            CAST(REPLACE(kode_produk,'P','') AS UNSIGNED)
+                        ) no
+                        FROM produk
+                    `);
+
                     const kode = "P" + ((last[0].no || 0) + 1);
-                    const ins = await q(`INSERT INTO produk (kode_produk, nama, gambar, keterangan) VALUES ( ?, ?, '', NULL)`, [ kode, raw ]);
+
+                    const ins = await q(`
+                        INSERT INTO produk
+                        (kode_produk,nama,gambar,keterangan)
+                        VALUES (?,?, '',NULL)
+                    `,[kode,raw]);
+
                     item.produk_id = ins.insertId;
 
-                    await q(`INSERT INTO stock_cabang (produk_id, cabang_id, jumlah) VALUES (?,1,0), (?,2,0)`,[ ins.insertId, ins.insertId ]);
+                    await q(`
+                        INSERT INTO stock_cabang
+                        (produk_id,cabang_id,jumlah)
+                        VALUES
+                        (?,1,0),
+                        (?,2,0)
+                    `,[ins.insertId,ins.insertId]);
+
                 }
+
             }
-            item.jumlah =
-                parseInt(item.jumlah) || 0;
+
+            item.jumlah = parseInt(item.jumlah) || 0;
+            item.harga  = parseInt(item.harga) || 0;
 
         }
 
-        incomingItems = incomingItems.filter(i => i.produk_id && i.jumlah > 0 );
+        incomingItems = incomingItems.filter(i=>i.produk_id && i.jumlah>0);
 
-        // ===========================
-        // DATA LAMA
-        // ===========================
-        const oldRows = await q(`SELECT produk_id, jumlah FROM barang_masuk_detail WHERE barang_masuk_id=? `,[id]);
+        // ===================================================
+        // AMBIL DETAIL LAMA
+        // ===================================================
+
+        const oldDetail = await q(`
+            SELECT
+                id,
+                gambar
+            FROM barang_masuk_detail
+            WHERE barang_masuk_id=?
+            ORDER BY id
+        `,[id]);
+
+        const oldRows = await q(`
+            SELECT
+                produk_id,
+                jumlah
+            FROM barang_masuk_detail
+            WHERE barang_masuk_id=?
+        `,[id]);
 
         const oldMap = {};
 
-        oldRows.forEach(r=>{ oldMap[r.produk_id] = (oldMap[r.produk_id]||0) + r.jumlah;
+        oldRows.forEach(r=>{
+
+            oldMap[r.produk_id] =
+                (oldMap[r.produk_id]||0)+r.jumlah;
+
         });
 
-        const newMap = {};
+        const newMap={};
 
-        incomingItems.forEach(i=>{ newMap[i.produk_id] = (newMap[i.produk_id]||0) + i.jumlah;
+        incomingItems.forEach(i=>{
+
+            newMap[i.produk_id] =
+                (newMap[i.produk_id]||0)+i.jumlah;
+
         });
 
-        // ===========================
+        // ===================================================
         // UPDATE HEADER
-        // ===========================
+        // ===================================================
 
-        await q(`UPDATE barang_masuk SET pengirim=? WHERE id=?`,[ pengirim, id ]);
+        await q(`
+            UPDATE barang_masuk
+            SET pengirim=?
+            WHERE id=?
+        `,[pengirim,id]);
 
-        // ===========================
-        // HAPUS DETAIL LAMA
-        // ===========================
+        // ===================================================
+        // HAPUS DETAIL
+        // ===================================================
 
-        await q(`DELETE FROM barang_masuk_detail WHERE barang_masuk_id=?`,[id]);
+        await q(`
+            DELETE FROM barang_masuk_detail
+            WHERE barang_masuk_id=?
+        `,[id]);
 
-        // ===========================
+        // ===================================================
         // INSERT DETAIL BARU
-        // ===========================
+        // ===================================================
 
-        for(const item of incomingItems){
-            await q(`INSERT INTO barang_masuk_detail ( barang_masuk_id, produk_id, jumlah, keterangan ) VALUES ( ?,?,?,? ) `,[ id, item.produk_id, item.jumlah, item.keterangan || null ]);
-        }
+        for(let i=0;i<incomingItems.length;i++){
 
-        // ===========================
-        // UPDATE STOK
-        // ===========================
+            const item=incomingItems[i];
 
-        const semuaProduk = [ ...new Set([ ...Object.keys(oldMap), ...Object.keys(newMap)])
-        ];
-        for(const pid of semuaProduk){
-            const lama = oldMap[pid] || 0;
-            const baru = newMap[pid] || 0;
-            const delta = baru - lama;
-            if(delta==0) continue;
-            if(delta>0){
-                await q(`INSERT INTO stock_cabang ( produk_id, cabang_id, jumlah ) VALUES ( ?,?,? ) ON DUPLICATE KEY UPDATE jumlah = jumlah + VALUES(jumlah)`,[pid,cabangId,delta]);
-            }else{
-                const kurang =
-                    Math.abs(delta);
-                const stok = await q(`SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=? LIMIT 1`,[pid,cabangId]);
-                const tersedia = stok.length ? parseInt(stok[0].jumlah) : 0;
-                if(tersedia < kurang){
-                    await rollback();
-                    return res.status(400).send("Stok tidak cukup.");
-                }
-                await q(`UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id=? AND cabang_id=?`,[kurang,pid,cabangId
-                ]);
+            let gambar=null;
+
+            if(files[i]){
+
+                gambar=files[i].filename;
+
+            }else if(oldDetail[i]){
+
+                gambar=oldDetail[i].gambar;
+
             }
+
+            await q(`
+                INSERT INTO barang_masuk_detail
+                (
+                    barang_masuk_id,
+                    produk_id,
+                    jumlah,
+                    harga,
+                    keterangan,
+                    gambar
+                )
+                VALUES
+                (?,?,?,?,?,?)
+            `,[
+                id,
+                item.produk_id,
+                item.jumlah,
+                item.harga,
+                item.keterangan || null,
+                gambar
+            ]);
+
         }
+
+        // ===================================================
+        // UPDATE STOK
+        // ===================================================
+
+        const semuaProduk=[
+            ...new Set([
+                ...Object.keys(oldMap),
+                ...Object.keys(newMap)
+            ])
+        ];
+
+        for(const pid of semuaProduk){
+
+            const lama=oldMap[pid]||0;
+            const baru=newMap[pid]||0;
+
+            const delta=baru-lama;
+
+            if(delta===0) continue;
+
+            if(delta>0){
+
+                await q(`
+                    INSERT INTO stock_cabang
+                    (produk_id,cabang_id,jumlah)
+                    VALUES (?,?,?)
+                    ON DUPLICATE KEY UPDATE
+                    jumlah=jumlah+VALUES(jumlah)
+                `,[pid,cabangId,delta]);
+
+            }else{
+
+                const kurang=Math.abs(delta);
+
+                const stok=await q(`
+                    SELECT jumlah
+                    FROM stock_cabang
+                    WHERE produk_id=?
+                    AND cabang_id=?
+                    LIMIT 1
+                `,[pid,cabangId]);
+
+                const tersedia=
+                    stok.length?
+                    parseInt(stok[0].jumlah):0;
+
+                if(tersedia<kurang){
+
+                    await rollback();
+
+                    return res.status(400).send("Stok tidak cukup.");
+
+                }
+
+                await q(`
+                    UPDATE stock_cabang
+                    SET jumlah=jumlah-?
+                    WHERE produk_id=?
+                    AND cabang_id=?
+                `,[kurang,pid,cabangId]);
+
+            }
+
+        }
+
         await commit();
-        return res.redirect("/");
-    } catch(err){
+
+        res.redirect("/");
+
+    }catch(err){
+
         console.error(err);
+
         try{
             await rollback();
         }catch(e){}
-        return res.status(500).send("Gagal mengedit barang masuk.");
+
+        res.status(500).send("Gagal mengedit barang masuk.");
+
     }
 
 });
@@ -5067,6 +5469,7 @@ function parseItemsFromBody(body) {
   // fallback: produk[], jumlah[], keterangan[] (form inputs)
   const produkArr = body['produk[]'] ?? body.produk ?? [];
   const jumlahArr = body['jumlah[]'] ?? body.jumlah ?? [];
+  const hargaArr = body['harga[]'] ?? body.harga ?? [];
   const ketArr = body['keterangan[]'] ?? body.keterangan ?? [];
 
   const pList = Array.isArray(produkArr) ? produkArr : (produkArr ? [produkArr] : []);
@@ -5298,7 +5701,13 @@ app.get('/barang-keluar', async (req, res) => {
 app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
   try {
     const tujuan = req.body.tujuan;
-    if (!tujuan) return res.status(400).send('Tujuan wajib diisi.');
+    const jenis = req.body.jenis;
+
+    if (!tujuan)
+      return res.status(400).send('Tujuan wajib diisi.');
+
+    if (!jenis)
+      return res.status(400).send('Jenis wajib dipilih.');
 
     // parse items (sama helper parseItemsFromBody)
     let data;
@@ -5324,32 +5733,45 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
 
     // mulai transaction
     await beginTransaction();
-    const resBK = await q('INSERT INTO barang_keluar (tujuan) VALUES (?)', [tujuan]);
+    const resBK = await q(`INSERT INTO barang_keluar (tujuan, jenis) VALUES (?, ?)`, [tujuan, jenis]);
     const barangKeluarId = resBK.insertId;
 
     // bagian after insert barang_keluar and barangKeluarId obtained
-for (let i = 0; i < data.length; i++) {
-  const it = data[i];
+    for (let i = 0; i < data.length; i++) {
+      const it = data[i];
 
-  // ambil file yang sesuai index i (jika ada)
-  const file = files[i];
-  const gambarFilename = file ? file.filename : null;
+      // ambil file yang sesuai index i (jika ada)
+      const file = files[i];
+      const gambarFilename = file ? file.filename : null;
 
-  // insert detail termasuk kolom gambar dan status = 2 (pending)
-  await q(
-    'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
-    [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
-  );
+      // insert detail termasuk kolom gambar dan status = 2 (pending)
+      await q(
+        'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
+        [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
+      );
 
-  // update stock
-      await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [it.jumlah, it.produk_id]);
-}
+      // update stock
+      const cabangId = 1;
+
+      // cek stok
+      const stok = await q(`SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=? LIMIT 1`, [it.produk_id, cabangId]);
+
+      const tersedia = stok.length ? parseInt(stok[0].jumlah) : 0;
+
+      if (tersedia < it.jumlah) {
+
+        await rollback();
+
+        return res.status(400).send(`Stok ${it.produk_id} tidak mencukupi`);
+      }
+      await q(`UPDATE stock_cabang SET jumlah=jumlah-? WHERE produk_id=? AND cabang_id=?`, [it.jumlah, it.produk_id, cabangId]);
+    }
 
     await commit();
     res.redirect('/');
   } catch (err) {
     console.error('POST /barang-keluar error:', err);
-    try { await rollback(); } catch(_) {}
+    try { await rollback(); } catch (_) { }
     res.status(500).send('Gagal menyimpan barang keluar.');
   }
 });
@@ -5357,32 +5779,79 @@ for (let i = 0; i < data.length; i++) {
 // POST /barang-keluar/detail/:detailId/complete
 // Ubah status dari 2 (pending) -> 1 (selesai). Setelah selesai tidak bisa di-undo lewat route ini.
 app.post('/barang-keluar/detail/:detailId/complete', async (req, res) => {
+
   try {
-    const detailId = parseInt(req.params.detailId, 10);
-    if (!detailId) return res.status(400).json({ ok: false, message: 'detailId invalid' });
 
-    const rows = await q('SELECT id, produk_id, jumlah, status FROM barang_keluar_detail WHERE id = ? LIMIT 1', [detailId]);
-    if (!rows || rows.length === 0) return res.status(404).json({ ok: false, message: 'Detail tidak ditemukan' });
+    const detailId = parseInt(req.params.detailId);
 
-    const det = rows[0];
-    const curStatus = parseInt(det.status, 10) || 2;
+    const rows = await q(`
+        SELECT
+            d.*,
+            b.jenis
+        FROM barang_keluar_detail d
+        JOIN barang_keluar b
+            ON b.id=d.barang_keluar_id
+        WHERE d.id=?
+        `, [detailId]);
 
-    if (curStatus === 1) {
-      // Sudah selesai — tidak boleh di-undo melalui endpoint ini
-      return res.status(400).json({ ok: false, message: 'Sudah berstatus Selesai.' });
+    if (rows.length == 0)
+      return res.status(404).json({
+        ok: false,
+        message: "Data tidak ditemukan"
+      });
+
+    const data = rows[0];
+
+    if (data.status == 1) {
+      return res.json({
+        ok: false,
+        message: "Sudah selesai"
+      });
     }
 
-    // lakukan update: set selesai + kembalikan stok
     await beginTransaction();
-    await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [det.jumlah, det.produk_id]);
-    await q('UPDATE barang_keluar_detail SET status = 1 WHERE id = ?', [detailId]);
+
+    // hanya service yang kembali stok
+
+    if (data.jenis == "service") {
+
+      await q(`
+            UPDATE stock_cabang
+            SET jumlah=jumlah+?
+            WHERE produk_id=?
+            AND cabang_id=1
+            `, [
+        data.jumlah,
+        data.produk_id
+      ]);
+
+    }
+
+    await q(`
+        UPDATE barang_keluar_detail
+        SET status=1
+        WHERE id=?
+        `, [detailId]);
+
     await commit();
 
-    return res.json({ ok: true, newStatus: 1, message: 'Status diubah menjadi Selesai; stok dikembalikan.' });
+    res.json({
+      ok: true,
+      message: "Status selesai."
+    });
+
   } catch (err) {
-    console.error('POST /barang-keluar/detail/:detailId/complete error:', err);
-    try { await rollback(); } catch(_) {}
-    return res.status(500).json({ ok: false, message: 'Server error' });
+
+    console.log(err);
+
+    try {
+      await rollback();
+    } catch (e) { }
+
+    res.status(500).json({
+      ok: false,
+      message: "Server Error"
+    });
   }
 });
 
@@ -5393,7 +5862,7 @@ app.get('/barang-keluar/:id', async (req, res) => {
     if (!id) return res.status(400).send('ID tidak valid.');
 
     // ambil header transaksi
-    const [hdrRows] = await Promise.all([ q('SELECT id, tujuan, tanggal FROM barang_keluar WHERE id = ?', [id]) ]);
+    const [hdrRows] = await Promise.all([q('SELECT id, tujuan, tanggal FROM barang_keluar WHERE id = ?', [id])]);
     const hdr = (Array.isArray(hdrRows) ? hdrRows[0] : hdrRows) || (hdrRows && hdrRows.length ? hdrRows[0] : null);
 
     // ambil items (join produk untuk nama)
@@ -5419,7 +5888,7 @@ app.get('/barang-keluar/edit/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).send('ID tidak valid.');
 
-    const trx = await q('SELECT id, tujuan, tanggal FROM barang_keluar WHERE id = ?', [id]);
+    const trx = await q(`SELECT id, tujuan, jenis, tanggal FROM barang_keluar WHERE id=?`, [id]);
     if (!trx || trx.length === 0) return res.status(404).send('Transaksi tidak ditemukan.');
 
     const items = await q(
@@ -5495,30 +5964,30 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
         const delta = newJumlah - cur.jumlah; // positive => more taken out (need more stock), negative => return some stock
         if (delta > 0) {
           // check available stock
-          const rows = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [newProdukId]);
+          const rows = await q('SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=1', [newProdukId]);
           const curStock = (rows && rows.length) ? rows[0].jumlah : 0;
           if (curStock < delta) {
             await rollback();
             return res.status(400).send(`Stok tidak cukup untuk produk id ${newProdukId} (butuh ${delta}, tersisa ${curStock}).`);
           }
-          await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [delta, newProdukId]);
+          await q('UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id = ?', [delta, newProdukId]);
         } else if (delta < 0) {
           // return stok (kurangi negative => add)
-          await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [Math.abs(delta), newProdukId]);
+          await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [Math.abs(delta), newProdukId]);
         }
       } else {
         // produk berubah: kembalikan stok lama, potong stok baru
         // add back old
-        await q('UPDATE stock SET jumlah = jumlah + ? WHERE produk_id = ?', [cur.jumlah, cur.produk_id]);
+        await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [cur.jumlah, cur.produk_id]);
 
         // subtract new
-        const rows2 = await q('SELECT jumlah FROM stock WHERE produk_id = ?', [newProdukId]);
+        const rows2 = await q('SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=1', [newProdukId]);
         const curStock2 = (rows2 && rows2.length) ? rows2[0].jumlah : 0;
         if (curStock2 < newJumlah) {
           await rollback();
           return res.status(400).send(`Stok tidak cukup untuk produk id ${newProdukId} (butuh ${newJumlah}, tersisa ${curStock2}).`);
         }
-        await q('UPDATE stock SET jumlah = jumlah - ? WHERE produk_id = ?', [newJumlah, newProdukId]);
+        await q('UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id = ?', [newJumlah, newProdukId]);
       }
 
       // handle optional uploaded gambar for this detail: name expected 'gambar_<detailId>' (client form should match)
@@ -5537,10 +6006,10 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
     }
 
     await commit();
-    return res.redirect('/barang-keluar');
+    return res.redirect('/');
   } catch (err) {
     console.error('POST /barang-keluar/edit/:id error:', err);
-    try { await rollback(); } catch(_) {}
+    try { await rollback(); } catch (_) { }
     return res.status(500).send('Gagal menyimpan perubahan.');
   }
 });
@@ -5921,7 +6390,7 @@ app.get('/export/all/pdf', async (req, res) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
     res.setHeader('Content-Type', 'application/pdf');
-    const fname = `all_history_${ hasRange ? `${start}_to_${end}` : 'all' }.pdf`;
+    const fname = `all_history_${hasRange ? `${start}_to_${end}` : 'all'}.pdf`;
     res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
     doc.pipe(res);
 
@@ -6527,7 +6996,7 @@ app.post('/barang-keluar-alex/:id/masuk-stok', async (req, res) => {
 
     try {
       await rollback();
-    } catch(e){}
+    } catch (e) { }
 
     res.status(500).send('Gagal proses masuk stok');
 
@@ -6734,101 +7203,101 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
     rows.forEach((r, index) => {
 
-    const namaProduk =
-      r.nama_produk ||
-      r.nama_barang ||
-      '-';
+      const namaProduk =
+        r.nama_produk ||
+        r.nama_barang ||
+        '-';
 
-    // hitung tinggi teks produk
-    const tinggiProduk = doc.heightOfString(
-      namaProduk,
-      {
-        width: 280
+      // hitung tinggi teks produk
+      const tinggiProduk = doc.heightOfString(
+        namaProduk,
+        {
+          width: 280
+        }
+      );
+
+      // tinggi row otomatis
+      const currentRowHeight =
+        Math.max(
+          tinggiProduk,
+          18
+        ) + 10;
+
+      // pindah halaman jika hampir habis
+      if (y + currentRowHeight > 540) {
+
+        doc.addPage();
+
+        y = 40;
+
+        doc.rect(20, y, 780, 22).stroke();
+
+        doc.text('No', 25, y + 6);
+        doc.text('Tujuan', 55, y + 6);
+        doc.text('Produk', 180, y + 6);
+        doc.text('Qty', 500, y + 6);
+        doc.text('Status', 560, y + 6);
+        doc.text('Tanggal', 650, y + 6);
+
+        y += 22;
+
       }
-    );
 
-    // tinggi row otomatis
-    const currentRowHeight =
-      Math.max(
-        tinggiProduk,
-        18
-      ) + 10;
+      // garis row
+      doc.rect(
+        20,
+        y,
+        780,
+        currentRowHeight
+      ).stroke();
 
-    // pindah halaman jika hampir habis
-    if (y + currentRowHeight > 540) {
+      doc.text(
+        String(index + 1),
+        25,
+        y + 5
+      );
 
-      doc.addPage();
+      doc.text(
+        r.tujuan || '-',
+        55,
+        y + 5,
+        {
+          width: 110
+        }
+      );
 
-      y = 40;
+      doc.text(
+        namaProduk,
+        180,
+        y + 5,
+        {
+          width: 300
+        }
+      );
 
-      doc.rect(20, y, 780, 22).stroke();
+      doc.text(
+        String(r.jumlah || 0),
+        500,
+        y + 5
+      );
 
-      doc.text('No',25,y+6);
-      doc.text('Tujuan',55,y+6);
-      doc.text('Produk',180,y+6);
-      doc.text('Qty',500,y+6);
-      doc.text('Status',560,y+6);
-      doc.text('Tanggal',650,y+6);
+      doc.text(
+        r.status || '-',
+        560,
+        y + 5
+      );
 
-      y += 22;
+      doc.text(
+        new Date(
+          r.created_at
+        ).toLocaleDateString('id-ID'),
+        650,
+        y + 5
+      );
 
-    }
+      y += currentRowHeight;
 
-    // garis row
-    doc.rect(
-      20,
-      y,
-      780,
-      currentRowHeight
-    ).stroke();
-
-    doc.text(
-      String(index + 1),
-      25,
-      y + 5
-    );
-
-    doc.text(
-      r.tujuan || '-',
-      55,
-      y + 5,
-      {
-        width: 110
-      }
-    );
-
-    doc.text(
-      namaProduk,
-      180,
-      y + 5,
-      {
-        width: 300
-      }
-    );
-
-    doc.text(
-      String(r.jumlah || 0),
-      500,
-      y + 5
-    );
-
-    doc.text(
-      r.status || '-',
-      560,
-      y + 5
-    );
-
-    doc.text(
-      new Date(
-        r.created_at
-      ).toLocaleDateString('id-ID'),
-      650,
-      y + 5
-    );
-
-    y += currentRowHeight;
-
-  });
+    });
 
     // =====================================
     // FOOTER
@@ -6861,214 +7330,214 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 // HALAMAN SPAREPART / AKSESORIS
 // ======================================================
 
-app.get('/sparepart', async (req, res) => {
+// app.get('/sparepart', async (req, res) => {
 
-  try {
+//   try {
 
-    const rows = await q(`
-      SELECT *
-      FROM sparepart
-      ORDER BY
-      CAST(
-        REPLACE(
-          UPPER(kode_sparepart),
-          'SP',
-          ''
-        ) AS UNSIGNED
-      ) ASC
-    `);
+//     const rows = await q(`
+//       SELECT *
+//       FROM sparepart
+//       ORDER BY
+//       CAST(
+//         REPLACE(
+//           UPPER(kode_sparepart),
+//           'SP',
+//           ''
+//         ) AS UNSIGNED
+//       ) ASC
+//     `);
 
-    res.render('sparepart', {
-      sparepart: rows
-    });
+//     res.render('sparepart', {
+//       sparepart: rows
+//     });
 
-  } catch (err) {
+//   } catch (err) {
 
-    console.error(err);
+//     console.error(err);
 
-    res.status(500).send(
-      'Gagal load sparepart'
-    );
+//     res.status(500).send(
+//       'Gagal load sparepart'
+//     );
 
-  }
+//   }
 
-});
+// });
 
 // ======================================================
 // TAMBAH SPAREPART
 // ======================================================
 
-app.post('/sparepart/tambah', async (req, res) => {
+// app.post('/sparepart/tambah', async (req, res) => {
 
-  try {
+//   try {
 
-    const {
-      nama,
-      kategori,
-      harga_modal,
-      harga_jual,
-      stok,
-      posisi,
-      keterangan
-    } = req.body;
+//     const {
+//       nama,
+//       kategori,
+//       harga_modal,
+//       harga_jual,
+//       stok,
+//       posisi,
+//       keterangan
+//     } = req.body;
 
-    const last = await q(`
-      SELECT kode_sparepart
-      FROM sparepart
-      ORDER BY id DESC
-      LIMIT 1
-    `);
+//     const last = await q(`
+//       SELECT kode_sparepart
+//       FROM sparepart
+//       ORDER BY id DESC
+//       LIMIT 1
+//     `);
 
-    let nomor = 1;
+//     let nomor = 1;
 
-    if (last.length > 0) {
+//     if (last.length > 0) {
 
-      nomor =
-        parseInt(
-          last[0].kode_sparepart.replace('SP', '')
-        ) + 1;
+//       nomor =
+//         parseInt(
+//           last[0].kode_sparepart.replace('SP', '')
+//         ) + 1;
 
-    }
+//     }
 
-    const kode =
-      'SP' + nomor;
+//     const kode =
+//       'SP' + nomor;
 
-    await q(`
-      INSERT INTO sparepart
-      (
-        kode_sparepart,
-        nama,
-        kategori,
-        harga_modal,
-        harga_jual,
-        stok,
-        posisi,
-        keterangan
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      kode,
-      nama,
-      kategori,
-      harga_modal || 0,
-      harga_jual || 0,
-      stok || 0,
-      posisi,
-      keterangan
-    ]);
+//     await q(`
+//       INSERT INTO sparepart
+//       (
+//         kode_sparepart,
+//         nama,
+//         kategori,
+//         harga_modal,
+//         harga_jual,
+//         stok,
+//         posisi,
+//         keterangan
+//       )
+//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+//     `, [
+//       kode,
+//       nama,
+//       kategori,
+//       harga_modal || 0,
+//       harga_jual || 0,
+//       stok || 0,
+//       posisi,
+//       keterangan
+//     ]);
 
-    res.redirect('/sparepart');
+//     res.redirect('/sparepart');
 
-  } catch (err) {
+//   } catch (err) {
 
-    console.error(err);
+//     console.error(err);
 
-    res.status(500).send(
-      'Gagal tambah sparepart'
-    );
+//     res.status(500).send(
+//       'Gagal tambah sparepart'
+//     );
 
-  }
+//   }
 
-});
+// });
 
 // ======================================================
 // FORM EDIT
 // ======================================================
 
-app.get('/sparepart/edit/:id', async (req, res) => {
+// app.get('/sparepart/edit/:id', async (req, res) => {
 
-  const id = req.params.id;
+//   const id = req.params.id;
 
-  const data = await q(`
-    SELECT *
-    FROM sparepart
-    WHERE id = ?
-  `, [id]);
+//   const data = await q(`
+//     SELECT *
+//     FROM sparepart
+//     WHERE id = ?
+//   `, [id]);
 
-  if (!data.length) {
-    return res.send('Data tidak ditemukan');
-  }
+//   if (!data.length) {
+//     return res.send('Data tidak ditemukan');
+//   }
 
-  res.render('sparepart_edit', {
-    sparepart: data[0]
-  });
+//   res.render('sparepart_edit', {
+//     sparepart: data[0]
+//   });
 
-});
+// });
 
-app.post('/sparepart/edit/:id', async (req, res) => {
+// app.post('/sparepart/edit/:id', async (req, res) => {
 
-  try {
+//   try {
 
-    const id = req.params.id;
+//     const id = req.params.id;
 
-    const {
-      nama,
-      kategori,
-      harga_modal,
-      harga_jual,
-      stok,
-      posisi,
-      keterangan
-    } = req.body;
+//     const {
+//       nama,
+//       kategori,
+//       harga_modal,
+//       harga_jual,
+//       stok,
+//       posisi,
+//       keterangan
+//     } = req.body;
 
-    await q(`
-      UPDATE sparepart
-      SET
-        nama=?,
-        kategori=?,
-        harga_modal=?,
-        harga_jual=?,
-        stok=?,
-        posisi=?,
-        keterangan=?
-      WHERE id=?
-    `, [
-      nama,
-      kategori,
-      harga_modal,
-      harga_jual,
-      stok,
-      posisi,
-      keterangan,
-      id
-    ]);
+//     await q(`
+//       UPDATE sparepart
+//       SET
+//         nama=?,
+//         kategori=?,
+//         harga_modal=?,
+//         harga_jual=?,
+//         stok=?,
+//         posisi=?,
+//         keterangan=?
+//       WHERE id=?
+//     `, [
+//       nama,
+//       kategori,
+//       harga_modal,
+//       harga_jual,
+//       stok,
+//       posisi,
+//       keterangan,
+//       id
+//     ]);
 
-    res.redirect('/sparepart');
+//     res.redirect('/sparepart');
 
-  } catch (err) {
+//   } catch (err) {
 
-    console.error(err);
+//     console.error(err);
 
-    res.status(500).send('Gagal update sparepart');
+//     res.status(500).send('Gagal update sparepart');
 
-  }
+//   }
 
-});
+// });
 
-app.post('/sparepart/hapus/:id', async (req, res) => {
+// app.post('/sparepart/hapus/:id', async (req, res) => {
 
-  try {
+//   try {
 
-    await q(`
-      DELETE FROM sparepart
-      WHERE id = ?
-    `, [
-      req.params.id
-    ]);
+//     await q(`
+//       DELETE FROM sparepart
+//       WHERE id = ?
+//     `, [
+//       req.params.id
+//     ]);
 
-    res.redirect('/sparepart');
+//     res.redirect('/sparepart');
 
-  } catch (err) {
+//   } catch (err) {
 
-    console.error(err);
+//     console.error(err);
 
-    res.status(500).send(
-      'Gagal hapus sparepart'
-    );
+//     res.status(500).send(
+//       'Gagal hapus sparepart'
+//     );
 
-  }
+//   }
 
-});
+// });
 
 // ======================================================
 // EXPORT PDF SPAREPART
@@ -7290,6 +7759,345 @@ app.get('/export/sparepart/pdf', async (req, res) => {
     );
 
   }
+
+});
+
+// =========================================
+// MASTER SPAREPART
+// =========================================
+app.get('/sparepart', async (req, res) => {
+  try {
+
+    const keyword = (req.query.keyword || '').trim();
+    const awal = req.query.awal || '';
+    const akhir = req.query.akhir || '';
+
+    let sql = `
+            SELECT *
+            FROM sparepart
+            WHERE 1=1
+        `;
+
+    let params = [];
+
+    // pencarian
+    if (keyword !== '') {
+
+      sql += `
+                AND (
+                    kode_sparepart LIKE ?
+                    OR nama LIKE ?
+                    OR kategori LIKE ?
+                    OR posisi LIKE ?
+                )
+            `;
+
+      params.push(
+        `%${keyword}%`,
+        `%${keyword}%`,
+        `%${keyword}%`,
+        `%${keyword}%`
+      );
+
+    }
+
+    // filter tanggal
+    if (awal && akhir) {
+
+      sql += `
+                AND DATE(created_at)
+                BETWEEN ? AND ?
+            `;
+
+      params.push(awal, akhir);
+
+    }
+
+    sql += `
+            ORDER BY id ASC
+        `;
+
+    const sparepart = await q(sql, params);
+
+    res.render('sparepart', {
+      sparepart
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send('Gagal membuka data sparepart');
+
+  }
+});
+
+// ===============================
+// SPAREPART MASUK
+// ===============================
+app.get('/sparepart-masuk', async (req, res) => {
+
+    const sparepart = await q(`
+        SELECT *
+        FROM sparepart
+        ORDER BY nama ASC
+    `);
+
+    res.render('sparepart_masuk', {
+        sparepart,
+        path: req.path
+    });
+
+});
+
+// ======================================
+// FORM TAMBAH SPAREPART
+// ======================================
+
+app.get('/sparepart/tambah', async (req, res) => {
+
+  try {
+
+    res.render('sparepart_tambah');
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send("Gagal membuka form.");
+
+  }
+
+});
+
+// ======================================
+// SIMPAN SPAREPART
+// ======================================
+
+app.post('/sparepart/tambah', upload.single('gambar'), async (req, res) => {
+
+  try {
+
+    const {
+
+      nama,
+      kategori,
+      harga_modal,
+      stok,
+      posisi,
+      keterangan
+
+    } = req.body;
+
+    //=============================
+    // GENERATE KODE
+    //=============================
+
+    const last = await q(`SELECT kode_sparepart FROM sparepart ORDER BY id DESC LIMIT 1`);
+
+    let kode = "SP0001";
+
+    if (last.length) {
+
+      const no = parseInt(
+        last[0]
+          .kode_sparepart
+          .replace("SP", "")
+      ) || 0;
+
+      kode = "SP" + String(no + 1).padStart(4, "0");
+
+    }
+
+    const gambar = req.file
+      ? req.file.filename
+      : null;
+
+    //=============================
+    // INSERT
+    //=============================
+
+    await q(`INSERT INTO sparepart (kode_sparepart, nama, kategori, harga_modal, stok, posisi, keterangan, gambar) VALUES (?,?,?,?,?,?,?,?)`, [
+
+      kode,
+      nama,
+      kategori,
+      harga_modal || 0,
+      // harga_jual || 0,
+      stok || 0,
+      posisi || "",
+      keterangan || "",
+      gambar
+
+    ]);
+
+    res.redirect("/sparepart");
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send("Gagal menyimpan sparepart.");
+
+  }
+
+});
+
+// ======================================
+// FORM EDIT SPAREPART
+// ======================================
+
+app.get('/sparepart/edit/:id', async (req, res) => {
+
+  try {
+
+    const id = parseInt(req.params.id);
+
+    const rows = await q(`
+            SELECT *
+            FROM sparepart
+            WHERE id=?
+            LIMIT 1
+        `, [id]);
+
+    if (!rows.length) {
+
+      return res.status(404).send("Sparepart tidak ditemukan.");
+
+    }
+
+    res.render("sparepart_edit", {
+
+      sparepart: rows[0]
+
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send("Gagal membuka halaman edit.");
+
+  }
+
+});
+
+// ======================================
+// UPDATE SPAREPART
+// ======================================
+
+app.post('/sparepart/edit/:id', upload.single('gambar'), async (req, res) => {
+
+  try {
+
+    const id = parseInt(req.params.id);
+
+    const {
+
+      nama,
+      kategori,
+      harga_modal,
+      harga_jual,
+      stok,
+      posisi,
+      keterangan
+
+    } = req.body;
+
+    const lama = await q(`SELECT gambar FROM sparepart WHERE id=? LIMIT 1`, [id]);
+
+    if (!lama.length) {
+
+      return res.status(404).send("Data tidak ditemukan.");
+
+    }
+
+    let gambar = lama[0].gambar;
+
+    // upload gambar baru
+
+    if (req.file) {
+
+      gambar = req.file.filename;
+
+      // hapus gambar lama
+
+      if (lama[0].gambar) {
+
+        const oldPath = path.join(__dirname, "media", lama[0].gambar);
+
+        if (fs.existsSync(oldPath)) {
+
+          fs.unlinkSync(oldPath);
+
+        }
+
+      }
+
+    }
+
+    await q(`UPDATE sparepart SET nama=?, kategori=?, harga_modal=?, harga_jual=?, stok=?, posisi=?, keterangan=?, gambar=? WHERE id=?`, 
+    [
+      nama,
+      kategori,
+      harga_modal || 0,
+      harga_jual || 0,
+      stok || 0,
+      posisi || "",
+      keterangan || "",
+      gambar,
+      id
+
+    ]);
+
+    res.redirect("/sparepart");
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send("Gagal mengupdate sparepart.");
+
+  }
+
+});
+
+// ======================================
+// DETAIL SPAREPART
+// ======================================
+
+app.get('/sparepart/:id', async (req, res) => {
+
+    try{
+
+        const id = parseInt(req.params.id);
+
+        const rows = await q(`
+            SELECT *
+            FROM sparepart
+            WHERE id=?
+            LIMIT 1
+        `,[id]);
+
+        if(!rows.length){
+
+            return res.status(404).send("Sparepart tidak ditemukan.");
+
+        }
+
+        res.render("sparepart_detail",{
+
+            sparepart: rows[0]
+
+        });
+
+    }catch(err){
+
+        console.error(err);
+
+        res.status(500).send("Gagal membuka detail sparepart.");
+
+    }
 
 });
 
