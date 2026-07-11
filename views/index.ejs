@@ -290,7 +290,7 @@
             <th style="width:280px">Produk</th>
             <th style="width:60px">Jumlah</th>
             <th style="width:120px">Harga</th>
-            <!-- <th style="width:140px">Total</th> -->
+            <th style="width:140px">Total</th>
              <th style="width:80px">Status</th>
             <th style="width:70px">Ket</th>
             <th style="width:100px">Tanggal</th>
@@ -316,9 +316,9 @@
                   Rp <%= Number(p.harga || 0).toLocaleString('id-ID') %>
                 </td>
 
-                <!-- <td>
+                <td>
                   Rp <%= Number((p.harga || 0) * (p.jumlah || 0)).toLocaleString('id-ID') %>
-                </td> -->
+                </td>
 
                 <td>
                   <% if(p.status == 1){ %>
