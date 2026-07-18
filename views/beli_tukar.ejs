@@ -289,15 +289,19 @@
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
-    $(document).ready(function () {
+    $(function () {
 
         $('#produkBaru').select2({
 
             placeholder: "🔍 Cari kode atau nama produk",
 
-            allowClear: true,
+            width: '100%',
 
-            width: '100%'
+            allowClear: true
+
+        }).on('select2:select', function () {
+
+            hitung();
 
         });
 
@@ -309,6 +313,7 @@
     };
 
     const produk = document.getElementById("produkBaru");
+    const harga = document.getElementById("hargaBaru");
 
     const jumlah = document.getElementById("jumlah");
 
@@ -324,9 +329,9 @@
 
     function hitung() {
 
-        const opt = $("#produkBaru option:selected");
+        const opt = $('#produkBaru').find(':selected');
 
-        if (opt.val() == "") {
+        if (!opt.val()) {
 
             subtotal.value = "";
             selisih.value = "";
@@ -389,12 +394,6 @@
         }
 
     }
-
-    $('#produkBaru').on('change', function () {
-
-        hitung();
-
-    });
 
     harga.addEventListener("input", hitung);
 
