@@ -1632,6 +1632,7 @@ app.post('/beli/edit/:id', upload.single('gambar'), async (req, res) => {
 
       seller_id,
       toko_id,
+      customer,
       produk_id,
       jumlah,
       harga,
@@ -1658,6 +1659,7 @@ app.post('/beli/edit/:id', upload.single('gambar'), async (req, res) => {
     const old = oldRows[0];
 
     const oldProduk = parseInt(old.produk_id);
+    const oldCustomer = old.customer;
     const oldCabang = parseInt(old.cabang_id);
     const oldQty = parseInt(old.jumlah);
 
@@ -1748,6 +1750,7 @@ app.post('/beli/edit/:id', upload.single('gambar'), async (req, res) => {
 
                 seller_id=?,
                 toko_id=?,
+                customer=?,
                 produk_id=?,
                 jumlah=?,
                 harga=?,
@@ -1763,6 +1766,7 @@ app.post('/beli/edit/:id', upload.single('gambar'), async (req, res) => {
 
       seller_id,
       toko_id,
+      customer,
       newProduk,
       newQty,
       harga,
@@ -6712,7 +6716,7 @@ app.get('/export/all/pdf', async (req, res) => {
 
     // 1) Pembelian
     const pembelianSql = `
-      SELECT p.id, p.seller_id, s.nama_seller AS nama_seller, p.jumlah, p.keterangan, p.tanggal, pr.nama AS produk_nama, p.status FROM pembelian p
+      SELECT p.id, p.seller_id, s.nama_seller AS nama_seller, p.customer, p.jumlah, p.keterangan, p.tanggal, pr.nama AS produk_nama, p.status FROM pembelian p
       LEFT JOIN produk pr ON p.produk_id = pr.id
       LEFT JOIN seller s ON p.seller_id = s.id ${dateWhere ? dateWhere.replace(/tanggal/g, 'p.tanggal') : ''}
       ORDER BY p.tanggal ASC
@@ -6865,7 +6869,7 @@ app.get('/export/all/pdf', async (req, res) => {
       for (let i = 0; i < pembelianRows.length; i++) {
         const r = pembelianRows[i];
         // prepare strings
-        const customerTxt = r.nama_seller || '-';
+        const customerTxt = r.customer || '-';
         const produkTxt = r.produk_nama || '-';
         const qtyTxt = String(r.jumlah ?? '-');
         const statusTxt = (r.status == 1 || r.status === 1) ? 'Selesai' : (r.status == 2 ? 'Pending' : String(r.status || '-'));

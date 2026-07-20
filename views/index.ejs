@@ -715,35 +715,33 @@
           </tr>
         </thead>
 
-        <tbody>
+        <tbody id="tbBarangKeluarAlex" class="text-center">
 
           <% if(typeof barangKeluarAlexList !=='undefined' && barangKeluarAlexList.length> 0){ %>
 
-            <% (barangKeluarAlexList || []).forEach((item,index)=>{ %>
+            <% barangKeluarAlexList.forEach((item,index)=>{ %>
 
-              <tr>
+              <tr data-index="<%= index %>">
 
-                <td class="text-center">
-                  <%= index + 1 %>
-                </td>
+                <td class="row-no"></td>
 
-                <td>
+                <td class="cell-tujuan">
                   <%= item.tujuan %>
                 </td>
 
-                <td>
+                <td class="cell-produk text-start">
                   <%= item.nama_barang %>
                 </td>
 
-                <td class="text-center">
+                <td class="cell-jumlah">
                   <%= item.jumlah %>
                 </td>
 
-                <td>
+                <td class="cell-keterangan text-start">
                   <%= item.keterangan || '-' %>
                 </td>
 
-                <td class="text-center">
+                <td>
 
                   <% if(item.status==='pending' ){ %>
 
@@ -771,53 +769,9 @@
 
                 </td>
 
-                <td class="text-center">
+                <td class="cell-tanggal">
                   <%= new Date(item.created_at).toLocaleString('id-ID') %>
                 </td>
-
-                <!-- <td class="text-center">
-
-              <% if(item.status === 'pending'){ %>
-
-                <form
-                  action="/barang-keluar-alex/selesai-stok/<%= item.id %>"
-                  method="POST"
-                  style="display:inline;">
-
-                  <button
-                    type="submit"
-                    class="btn btn-success btn-sm">
-
-                    Masuk Stok
-
-                  </button>
-
-                </form>
-
-                <form
-                  action="/barang-keluar-alex/selesai-beres/<%= item.id %>"
-                  method="POST"
-                  style="display:inline;">
-
-                  <button
-                    type="submit"
-                    class="btn btn-primary btn-sm">
-
-                    Beres
-
-                  </button>
-
-                </form>
-
-              <% } else { %>
-
-                <span class="text-success fw-bold">
-                  Selesai
-                </span>
-
-              <% } %>
-
-            </td> -->
 
               </tr>
 
@@ -825,9 +779,9 @@
 
                 <% } else { %>
 
-                  <tr>
+                  <tr class="empty">
 
-                    <td colspan="8" class="text-center text-muted">
+                    <td colspan="7" class="text-muted">
 
                       Belum ada data Barang Keluar Alex
 
@@ -838,10 +792,11 @@
                   <% } %>
 
         </tbody>
-
       </table>
     </div>
-
+    <nav>
+      <ul id="paginationBarangKeluarAlex" class="pagination"></ul>
+    </nav>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
@@ -959,6 +914,7 @@
       paginateTable('tbPembelian', 'paginationPembelian', 5);
       paginateTable('tbBM', 'paginationBM', 5);
       paginateTable('tbBK', 'paginationBK', 5);
+      paginateTable('tbBarangKeluarAlex', 'paginationBarangKeluarAlex', 5);
     }
 
     // debounce helper
@@ -974,6 +930,7 @@
       paginateTable('tbPembelian', 'paginationPembelian', 5);
       paginateTable('tbBM', 'paginationBM', 5);
       paginateTable('tbBK', 'paginationBK', 5);
+      paginateTable('tbBarangKeluarAlex', 'paginationBarangKeluarAlex', 5);
     });
   </script>
   <!-- letakkan sebelum </body> -->
@@ -1561,6 +1518,131 @@
       );
 
     });
+
+  </script>
+  <script>
+
+    (function () {
+
+      const tbody =
+        document.getElementById("tbBarangKeluarAlex");
+
+      if (!tbody) return;
+
+      const rows =
+        [...tbody.querySelectorAll("tr:not(.empty)")];
+
+      const perPage = 5;
+
+      let page = 1;
+
+      const totalPage =
+        Math.ceil(rows.length / perPage);
+
+      function render() {
+
+        rows.forEach((tr, i) => {
+
+          const start =
+            (page - 1) * perPage;
+
+          const end =
+            start + perPage;
+
+          tr.style.display =
+            (i >= start && i < end)
+              ? ""
+              : "none";
+
+          if (i >= start && i < end) {
+
+            const no =
+              tr.querySelector(".row-no");
+
+            if (no) {
+
+              no.innerHTML =
+                i + 1;
+
+            }
+
+          }
+
+        });
+
+        const pag =
+          document.getElementById(
+            "paginationBarangKeluarAlex"
+          );
+
+        pag.innerHTML = "";
+
+        if (totalPage <= 1) return;
+
+        // tombol prev
+        pag.innerHTML +=
+          `
+        <li class="page-item ${page == 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${page - 1}">
+                Previous
+            </a>
+        </li>
+        `;
+
+        for (let i = 1; i <= totalPage; i++) {
+
+          pag.innerHTML +=
+            `
+            <li class="page-item ${i == page ? 'active' : ''}">
+                <a class="page-link"
+                   href="#"
+                   data-page="${i}">
+                    ${i}
+                </a>
+            </li>
+            `;
+
+        }
+
+        // tombol next
+        pag.innerHTML +=
+          `
+        <li class="page-item ${page == totalPage ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${page + 1}">
+                Next
+            </a>
+        </li>
+        `;
+
+        pag.querySelectorAll("a").forEach(a => {
+
+          a.onclick = function (e) {
+
+            e.preventDefault();
+
+            const p =
+              Number(this.dataset.page);
+
+            if (
+              p >= 1 &&
+              p <= totalPage
+            ) {
+
+              page = p;
+
+              render();
+
+            }
+
+          };
+
+        });
+
+      }
+
+      render();
+
+    })();
 
   </script>
 
