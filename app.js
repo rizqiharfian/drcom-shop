@@ -6766,6 +6766,28 @@ app.get('/export/all/pdf', async (req, res) => {
     `;
     const bkRows = hasRange ? await q(bkSql, [start, end]) : await q(bkSql);
 
+    // =====================================================
+    // 4) Barang Keluar Alex
+    // =====================================================
+    const alexSql = `
+    SELECT
+        bka.id,
+        bka.tujuan,
+        bka.nama_barang,
+        bka.jumlah,
+        bka.keterangan,
+        bka.status,
+        bka.created_at
+    FROM barang_alex_keluar bka
+    ${dateWhere ? dateWhere.replace(/tanggal/g,'bka.created_at') : ''}
+    ORDER BY bka.created_at ASC
+    `;
+
+    const barangKeluarAlexRows =
+        hasRange
+            ? await q(alexSql,[start,end])
+            : await q(alexSql);
+
     // group barang keluar by bk_id (preserve insertion order)
     const groupedBK = {};
     const bkOrder = [];
@@ -7085,6 +7107,169 @@ app.get('/export/all/pdf', async (req, res) => {
         doc.restore();
         doc.moveDown(0.6);
       }
+    }
+
+    // ======================================================
+    // SECTION : BARANG KELUAR ALEX
+    // ======================================================
+
+    drawPageHeader('4) Riwayat Barang Keluar Alex');
+
+    if (!barangKeluarAlexRows.length) {
+
+        doc.fontSize(10)
+          .fillColor('gray')
+          .text('Tidak ada data Barang Keluar Alex.', margin, doc.y);
+
+        doc.fillColor('black');
+
+    } else {
+
+        const colNo = 30;
+        const colTujuan = 90;
+        const colProduk = 150;
+        const colQty = 50;
+        const colStatus = 90;
+
+        const colTanggal =
+            contentWidth -
+            (colNo + colTujuan + colProduk + colQty + colStatus);
+
+        // header tabel
+        doc.fontSize(10)
+          .font('Helvetica-Bold');
+
+        let y = doc.y;
+
+        doc.text("No", margin, y, {
+            width: colNo,
+            align: "center"
+        });
+
+        doc.text("Tujuan",
+            margin + colNo,
+            y,
+            {
+                width: colTujuan,
+                align: "center"
+            });
+
+        doc.text("Barang",
+            margin + colNo + colTujuan,
+            y,
+            {
+                width: colProduk,
+                align: "center"
+            });
+
+        doc.text("Qty",
+            margin + colNo + colTujuan + colProduk,
+            y,
+            {
+                width: colQty,
+                align: "center"
+            });
+
+        doc.text("Status",
+            margin + colNo + colTujuan + colProduk + colQty,
+            y,
+            {
+                width: colStatus,
+                align: "center"
+            });
+
+        doc.text("Tanggal",
+            margin + colNo + colTujuan + colProduk + colQty + colStatus,
+            y,
+            {
+                width: colTanggal,
+                align: "center"
+            });
+
+        doc.moveDown();
+
+        doc.font("Helvetica");
+
+        barangKeluarAlexRows.forEach((r,index)=>{
+
+            const status =
+                r.status=="pending"
+                    ? "Pending"
+                    : r.status=="selesai_stok"
+                        ? "Selesai Stok"
+                        : "Selesai Beres";
+
+            const tinggi =
+                Math.max(
+                    doc.heightOfString(r.nama_barang,{
+                        width:colProduk
+                    }),
+                    18
+                );
+
+            needNewPage(tinggi+12);
+
+            const yy=doc.y;
+
+            doc.text(index+1,
+                margin,
+                yy,
+                {
+                    width:colNo,
+                    align:"center"
+                });
+
+            doc.text(r.tujuan||"-",
+                margin+colNo,
+                yy,
+                {
+                    width:colTujuan,
+                    align:"left"
+                });
+
+            doc.text(r.nama_barang||"-",
+                margin+colNo+colTujuan,
+                yy,
+                {
+                    width:colProduk,
+                    align:"left"
+                });
+
+            doc.text(String(r.jumlah),
+                margin+colNo+colTujuan+colProduk,
+                yy,
+                {
+                    width:colQty,
+                    align:"center"
+                });
+
+            if(r.status=="pending")
+                doc.fillColor("red");
+            else
+                doc.fillColor("green");
+
+            doc.text(status,
+                margin+colNo+colTujuan+colProduk+colQty,
+                yy,
+                {
+                    width:colStatus,
+                    align:"center"
+                });
+
+            doc.fillColor("black");
+
+            doc.text(
+                new Date(r.created_at).toLocaleString("id-ID"),
+                margin+colNo+colTujuan+colProduk+colQty+colStatus,
+                yy,
+                {
+                    width:colTanggal,
+                    align:"center"
+                });
+
+            doc.y=yy+tinggi+6;
+        });
+
     }
 
     // footer
