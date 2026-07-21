@@ -324,7 +324,7 @@ app.get('/barang-hilang', async (req, res) => {
           WHEN bh.status='hilang' THEN 0
           ELSE 1
         END,
-        bh.created_at DESC
+        p.nama ASC
     `);
 
     res.render(
