@@ -162,7 +162,7 @@
           <div class="col-md-4">
 
             <label class="form-label">
-              Produk Baru (Jika belum ada)
+              Produk Baru (Belum foto atau belum ada stok)
             </label>
 
             <input
@@ -183,6 +183,32 @@
               name="jumlah"
               class="form-control"
               required>
+
+          </div>
+
+          <div class="col-md-3">
+
+            <label class="form-label">
+              Orderan
+            </label>
+
+            <input
+              type="text"
+              name="orderan"
+              class="form-control">
+
+          </div>
+
+          <div class="col-md-3">
+
+            <label class="form-label">
+              Service
+            </label>
+
+            <input
+              type="text"
+              name="service"
+              class="form-control">
 
           </div>
 
@@ -259,9 +285,11 @@
 
           <tr>
             <th>No</th>
-            <th>Tujuan</th>
+            <th width="10">Tujuan</th>
             <th>Produk</th>
             <th>Jumlah</th>
+            <th>Orderan</th>
+            <th>Service</th>
             <th>Keterangan</th>
             <th>Status</th>
             <th>Tanggal</th>
@@ -282,6 +310,8 @@
             <td><%= d.tujuan %></td>
             <td><%= d.nama_produk %></td>
             <td><%= d.jumlah %></td>
+            <td><%= d.orderan || '-' %></td>
+            <td><%= d.service || '-' %></td>
             <td><%= d.keterangan || '-' %></td>
             <td><% if(d.status=='pending'){ %>
                 <span class="badge badge-pending">

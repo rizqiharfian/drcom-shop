@@ -1844,11 +1844,11 @@ app.get('/beli/tukar/:id', async (req, res) => {
 
     const produk = await q(`
     SELECT
-
-        p.*,
-
+        p.id,
+        p.kode_produk,
+        p.nama,
+        p.harga_modal,
         COALESCE(jkt.jumlah,0) AS stok_jakarta,
-
         COALESCE(smg.jumlah,0) AS stok_semarang
 
     FROM produk p
@@ -1861,26 +1861,23 @@ app.get('/beli/tukar/:id', async (req, res) => {
         ON smg.produk_id = p.id
         AND smg.cabang_id = 2
 
-    -- hanya tampilkan yang masih ada stok
     WHERE
         COALESCE(jkt.jumlah,0) > 0
         OR COALESCE(smg.jumlah,0) > 0
 
     ORDER BY
-
-        CASE
-            WHEN COALESCE(jkt.jumlah,0) > 0 THEN 0
-            ELSE 1
-        END,
-
-        CAST(
-            REPLACE(
-                UPPER(p.kode_produk),
-                'P',
-                ''
-            ) AS UNSIGNED
-        ) ASC
-`);
+    CASE
+        WHEN COALESCE(jkt.jumlah,0) > 0 THEN 0
+        ELSE 1
+    END,
+    CAST(
+        REPLACE(
+            UPPER(p.kode_produk),
+            'P',
+            ''
+        ) AS UNSIGNED
+    ) ASC
+    `);
 
     res.render("beli_tukar", {
 
@@ -7344,6 +7341,8 @@ app.post('/barang-keluar-alex', async (req, res) => {
       produk_id,
       produk_baru,
       jumlah,
+      orderan,
+      service,
       keterangan
     } = req.body;
 
@@ -7471,16 +7470,20 @@ app.post('/barang-keluar-alex', async (req, res) => {
         produk_id,
         nama_barang,
         jumlah,
+        orderan,
+        service,
         keterangan,
         status
       )
-      VALUES (?, ?, ?, ?, ?, 'pending')
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
     `, [
       tujuan,
       finalProdukId,
       namaBarang,
       parseInt(jumlah) || 0,
-      keterangan || null
+      orderan || null,
+      service || null,
+      keterangan || null,
     ]);
 
     res.redirect('/barang-keluar-alex');
@@ -7546,13 +7549,15 @@ app.post('/barang-keluar-alex/:id/masuk-stok', async (req, res) => {
         barang_masuk_id,
         produk_id,
         jumlah,
+        orderan,
         keterangan
       )
-      VALUES (?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?)
     `, [
       bm.insertId,
       item.produk_id,
       item.jumlah,
+      item.orderan,
       'AUTO DARI BARANG KELUAR ALEX'
     ]);
 
@@ -7562,16 +7567,18 @@ app.post('/barang-keluar-alex/:id/masuk-stok', async (req, res) => {
       (
         produk_id,
         cabang_id,
-        jumlah
+        jumlah,
+        orderan
       )
-      VALUES (?, 1, ?)
+      VALUES (?, 1, ?, ?)
 
       ON DUPLICATE KEY UPDATE
 
       jumlah = jumlah + VALUES(jumlah)
     `, [
       item.produk_id,
-      item.jumlah
+      item.jumlah,
+      item.orderan
     ]);
 
     await commit();
@@ -8686,6 +8693,292 @@ app.get('/sparepart/:id', async (req, res) => {
     res.status(500).send("Gagal membuka detail sparepart.");
 
   }
+
+});
+
+// ==========================================
+// CLAIM GARANSI
+// ==========================================
+app.get('/claim-garansi', async (req, res) => {
+
+    try {
+
+        const claimList = await q(`
+            SELECT
+                cg.*,
+                p.nama AS nama_produk,
+                p.kode_produk
+            FROM claim_garansi cg
+            LEFT JOIN produk p
+                ON p.id = cg.produk_id
+            ORDER BY cg.created_at DESC
+        `);
+
+        const produk = await q(`
+            SELECT
+                p.id,
+                p.kode_produk,
+                p.nama,
+                COALESCE(jkt.jumlah,0) AS stok_jakarta,
+                COALESCE(smg.jumlah,0) AS stok_semarang
+            FROM produk p
+
+            LEFT JOIN stock_cabang jkt
+                ON jkt.produk_id = p.id
+                AND jkt.cabang_id = 1
+
+            LEFT JOIN stock_cabang smg
+                ON smg.produk_id = p.id
+                AND smg.cabang_id = 2
+
+            WHERE
+                COALESCE(jkt.jumlah,0) > 0
+                OR COALESCE(smg.jumlah,0) > 0
+
+            ORDER BY
+                CAST(
+                    REPLACE(
+                        UPPER(p.kode_produk),
+                        'P',
+                        ''
+                    ) AS UNSIGNED
+                ) ASC
+        `);
+
+        res.render('claim_garansi', {
+            claimList,
+            produk,
+            path: '/claim-garansi'
+        });
+
+    } catch(err){
+
+        console.log(err);
+        res.status(500).send(err.message);
+
+    }
+
+});
+
+app.post('/claim-garansi', upload.array('gambar', 10), async (req, res) => {
+
+        try {
+
+            const {
+                produk_id,
+                customer,
+                keluhan
+            } = req.body;
+
+            const gambar = req.files && req.files.length
+                ? req.files.map(f => f.filename).join(',')
+                : null;
+
+            await q(`
+                INSERT INTO claim_garansi
+                (
+                    produk_id,
+                    customer,
+                    keluhan,
+                    gambar,
+                    status
+                )
+                VALUES
+                (
+                    ?,?,?,?,
+                    'Menunggu'
+                )
+            `,[
+                produk_id,
+                customer,
+                keluhan,
+                gambar
+            ]);
+
+            res.redirect('/claim-garansi');
+
+        } catch(err){
+
+            console.log(err);
+
+            res.status(500).send(err.message);
+
+        }
+
+    }
+);
+
+app.get('/claim-garansi/edit/:id', async(req,res)=>{
+
+    try{
+
+        const id=req.params.id;
+
+        const claim=await q(`
+            SELECT *
+            FROM claim_garansi
+            WHERE id=?
+        `,[id]);
+
+        if(!claim.length){
+
+            return res.send("Data tidak ditemukan");
+
+        }
+
+        const produk=await q(`
+            SELECT
+                p.id,
+                p.kode_produk,
+                p.nama,
+                COALESCE(jkt.jumlah,0) stok_jakarta,
+                COALESCE(smg.jumlah,0) stok_semarang
+            FROM produk p
+
+            LEFT JOIN stock_cabang jkt
+            ON jkt.produk_id=p.id
+            AND jkt.cabang_id=1
+
+            LEFT JOIN stock_cabang smg
+            ON smg.produk_id=p.id
+            AND smg.cabang_id=2
+
+            WHERE
+                COALESCE(jkt.jumlah,0)>0
+                OR COALESCE(smg.jumlah,0)>0
+
+            ORDER BY
+            CAST(REPLACE(UPPER(p.kode_produk),'P','') AS UNSIGNED)
+        `);
+
+        res.render('claim_garansi_edit',{
+
+            claim:claim[0],
+
+            produk
+
+        });
+
+    }catch(err){
+
+        console.log(err);
+
+        res.status(500).send(err.message);
+
+    }
+
+});
+
+app.post('/claim-garansi/edit/:id', upload.array('gambar',10), async(req,res)=>{
+
+        try{
+
+            const id=req.params.id;
+
+            const {
+
+                produk_id,
+
+                customer,
+
+                keluhan,
+
+                status
+
+            }=req.body;
+
+            let gambarBaru=null;
+
+            if(req.files.length){
+
+                gambarBaru=req.files
+                    .map(f=>f.filename)
+                    .join(',');
+            }
+
+            if(gambarBaru){
+
+                await q(`
+                    UPDATE claim_garansi
+                    SET
+
+                    produk_id=?,
+
+                    customer=?,
+
+                    keluhan=?,
+
+                    status=?,
+
+                    gambar=?
+
+                    WHERE id=?
+                `,[
+                    produk_id,
+                    customer,
+                    keluhan,
+                    status,
+                    gambarBaru,
+                    id
+                ]);
+
+            }else{
+
+                await q(`
+                    UPDATE claim_garansi
+                    SET
+
+                    produk_id=?,
+
+                    customer=?,
+
+                    keluhan=?,
+
+                    status=?
+
+                    WHERE id=?
+                `,[
+                    produk_id,
+                    customer,
+                    keluhan,
+                    status,
+                    id
+                ]);
+
+            }
+
+            res.redirect('/claim-garansi');
+
+        }catch(err){
+
+            console.log(err);
+
+            res.status(500).send(err.message);
+
+        }
+
+    }
+);
+
+app.post('/claim-garansi/delete/:id',async(req,res)=>{
+
+    try{
+
+        await q(`
+            DELETE
+            FROM claim_garansi
+            WHERE id=?
+        `,[req.params.id]);
+
+        res.redirect('/claim-garansi');
+
+    }catch(err){
+
+        console.log(err);
+
+        res.status(500).send(err.message);
+
+    }
 
 });
 

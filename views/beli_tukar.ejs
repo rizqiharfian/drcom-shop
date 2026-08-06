@@ -151,9 +151,10 @@
 
                                 <% produk.forEach(function(p){ %>
 
-                                    <option value="<%= p.id %>" data-harga="<%= p.harga || 0 %>"
-                                        data-jkt="<%= p.stok_jakarta %>" data-smg="<%= p.stok_semarang %>"
-                                        data-kode="<%= p.kode_produk %>"
+                                    <option 
+                                        value="<%= p.id %>" data-harga="<%= p.harga || 0 %>"
+                                        data-modal="<%= p.harga_modal || 0 %>" data-jkt="<%= p.stok_jakarta %>"
+                                        data-smg="<%= p.stok_semarang %>" data-kode="<%= p.kode_produk %>"
                                         data-text="<%= p.kode_produk %> | <%= p.nama %>">
 
                                         <%= p.kode_produk %> |
@@ -188,9 +189,9 @@
 
                                 <div class="col-md-4">
 
-                                    <label>Harga Default</label>
+                                    <label>Harga Modal</label>
 
-                                    <input id="hargaDefault" class="form-control" readonly>
+                                    <input id="hargaModal" class="form-control" readonly>
 
                                 </div>
 
@@ -325,24 +326,29 @@
 
     const selisih = document.getElementById("selisih");
 
-    const hargaDefault = document.getElementById("hargaDefault");
+    const hargaModal = document.getElementById("hargaModal");
 
     function hitung() {
 
-        const opt = $('#produkBaru').find(':selected');
+    const opt = $('#produkBaru').find(':selected');
 
-        if (!opt.val()) {
+    console.log(opt[0]);               // lihat option yang dipilih
+    console.log(opt.data("modal"));    // lihat harga modal
+    console.log(opt.data("harga"));    // lihat harga jual
 
-            subtotal.value = "";
-            selisih.value = "";
-            hargaDefault.value = "";
-            stokJkt.value = "";
-            stokSmg.value = "";
-            return;
+    if (!opt.val()) {
+        subtotal.value = "";
+        selisih.value = "";
+        hargaModal.value = "";
+        stokJkt.value = "";
+        stokSmg.value = "";
+        return;
+    }
 
-        }
+    const defaultHarga = Number(opt.data("harga")) || 0;
+    const modal = Number(opt.data("modal")) || 0;
 
-        const defaultHarga = Number(opt.data("harga")) || 0;
+    console.log("Modal :", modal);
 
         const stokJakarta = Number(opt.data("jkt")) || 0;
 
@@ -352,8 +358,8 @@
 
         stokSmg.value = stokSemarang;
 
-        hargaDefault.value =
-            "Rp " + defaultHarga.toLocaleString("id-ID");
+        hargaModal.value =
+            "Rp " + modal.toLocaleString("id-ID");
 
         if (harga.value == "")
             harga.value = defaultHarga;
