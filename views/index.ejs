@@ -896,7 +896,7 @@
     function applyFilter() {
       const q = (searchInput.value || '').trim().toLowerCase();
       // tables to filter
-      const tableBodies = ['tbPembelian', 'tbBM', 'tbBK'];
+      const tableBodies = ['tbPembelian', 'tbBM', 'tbBK', 'tbBarangKeluarAlex'];
       tableBodies.forEach(id => {
         const tbody = document.getElementById(id);
         if (!tbody) return;
