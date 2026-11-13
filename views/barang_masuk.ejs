@@ -21,22 +21,43 @@
 
 <body class="bg-light">
 
-<!-- NAVBAR -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-  <div class="container">
-    <a class="navbar-brand" href="/">Manajemen Toko</a>
+<!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container">
+      <a class="navbar-brand" href="/">Manajemen Toko</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
 
-    <div class="collapse navbar-collapse">
-      <ul class="navbar-nav ms-auto">
-        <% const currentPath = typeof path !== 'undefined' ? path : '/'; %>
-        <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a></li>
-        <li class="nav-item"><a class="nav-link active" href="/barang-masuk">Barang Masuk</a></li>
-        <li class="nav-item"><a class="nav-link" href="/barang-keluar">Barang Keluar</a></li>
-        <li class="nav-item"><a class="nav-link" href="/produk">Produk</a></li>
-      </ul>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <% const currentPath=typeof path !=='undefined' ? path : '/' ; %>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>" href="/">Beranda</a>
+            </li>
+            <li class="nav-item"><a class="nav-link" href="/seller">Seller</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/claim-garansi' ? 'active' : '' %>"
+                href="/claim-garansi">Claim Garansi</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>"
+                href="/barang-masuk">Barang Masuk</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>"
+                href="/barang-keluar">Barang Keluar</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar-alex' ? 'active' : '' %>"
+                href="/barang-keluar-alex">Barang Keluar Alex</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-hilang' ? 'active' : '' %>"
+                href="/barang-hilang">Barang Hilang</a></li>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>"
+                href="/produk">Produk</a></li>
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Sparepart</a>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/sparepart">Master Sparepart</a></li>
+                <!-- <li><a class="dropdown-item" href="/sparepart-masuk">Sparepart Masuk</a></li> -->
+              </ul>
+            </li>
+        </ul>
+      </div>
     </div>
-  </div>
-</nav>
+  </nav>
 
 <div class="container mt-5">
   <h2 class="text-center mb-4">Form Barang Masuk</h2>

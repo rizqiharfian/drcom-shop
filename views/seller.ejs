@@ -1,275 +1,278 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
-<meta charset="UTF-8">
-<title>Master Seller</title>
+    <meta charset="UTF-8">
+    <title>Master Seller</title>
 
-<link rel="icon" href="/drcom.png">
+    <link rel="icon" href="/drcom.png">
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
 </head>
+
 <body class="bg-light">
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">Manajemen Toko</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
 
-<div class="container">
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <% const currentPath=typeof path !=='undefined' ? path : '/' ; %>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/' ? 'active' : '' %>"
+                                href="/">Beranda</a>
+                        </li>
+                        <li class="nav-item"><a class="nav-link" href="/seller">Seller</a></li>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/claim-garansi' ? 'active' : '' %>"
+                                href="/claim-garansi">Claim Garansi</a></li>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-masuk' ? 'active' : '' %>"
+                                href="/barang-masuk">Barang Masuk</a></li>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-keluar' ? 'active' : '' %>"
+                                href="/barang-keluar">Barang Keluar</a></li>
+                        <li class="nav-item"><a
+                                class="nav-link <%= currentPath === '/barang-keluar-alex' ? 'active' : '' %>"
+                                href="/barang-keluar-alex">Barang Keluar Alex</a></li>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/barang-hilang' ? 'active' : '' %>"
+                                href="/barang-hilang">Barang Hilang</a></li>
+                        <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>"
+                                href="/produk">Produk</a></li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button"
+                                data-bs-toggle="dropdown">Sparepart</a>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="/sparepart">Master Sparepart</a></li>
+                                <!-- <li><a class="dropdown-item" href="/sparepart-masuk">Sparepart Masuk</a></li> -->
+                            </ul>
+                        </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
 
-<a class="navbar-brand" href="/">
-DRCOM
-</a>
+    <div class="container">
 
-<div class="navbar-nav ms-auto">
+        <div class="row">
 
-<a class="nav-link" href="/">
-Beranda
-</a>
+            <!-- FORM SELLER -->
 
-<a class="nav-link active" href="/seller">
-Seller
-</a>
+            <div class="col-md-4">
 
-</div>
+                <div class="card shadow-sm mb-3">
 
-</div>
+                    <div class="card-header bg-primary text-white">
+                        Tambah Seller
+                    </div>
 
-</nav>
+                    <div class="card-body">
 
-<div class="container">
+                        <form action="/seller/tambah" method="POST">
 
-<div class="row">
+                            <div class="mb-3">
 
-<!-- FORM SELLER -->
+                                <label>Nama Seller</label>
 
-<div class="col-md-4">
+                                <input type="text" name="nama_seller" class="form-control" required>
 
-<div class="card shadow-sm mb-3">
+                            </div>
 
-<div class="card-header bg-primary text-white">
-Tambah Seller
-</div>
+                            <button class="btn btn-success">
+                                Simpan Seller
+                            </button>
 
-<div class="card-body">
+                        </form>
 
-<form action="/seller/tambah" method="POST">
+                    </div>
 
-<div class="mb-3">
+                </div>
 
-<label>Nama Seller</label>
+                <!-- FORM TOKO -->
 
-<input
-type="text"
-name="nama_seller"
-class="form-control"
-required>
+                <div class="card shadow-sm">
 
-</div>
+                    <div class="card-header bg-success text-white">
+                        Tambah Toko
+                    </div>
 
-<button class="btn btn-success">
-Simpan Seller
-</button>
+                    <div class="card-body">
 
-</form>
+                        <form action="/seller/toko/tambah" method="POST">
 
-</div>
+                            <div class="mb-3">
 
-</div>
+                                <label>Seller</label>
 
-<!-- FORM TOKO -->
+                                <select name="seller_id" class="form-select" required>
 
-<div class="card shadow-sm">
+                                    <option value="">
+                                        Pilih Seller
+                                    </option>
 
-<div class="card-header bg-success text-white">
-Tambah Toko
-</div>
+                                    <% seller.forEach(s=>{ %>
 
-<div class="card-body">
+                                        <option value="<%= s.id %>">
+                                            <%= s.nama_seller %>
+                                        </option>
 
-<form action="/seller/toko/tambah" method="POST">
+                                        <% }) %>
 
-<div class="mb-3">
+                                </select>
 
-<label>Seller</label>
+                            </div>
 
-<select
-name="seller_id"
-class="form-select"
-required>
+                            <div class="mb-3">
 
-<option value="">
-Pilih Seller
-</option>
+                                <label>Nama Toko</label>
 
-<% seller.forEach(s=>{ %>
+                                <input type="text" name="nama_toko" class="form-control" required>
 
-<option value="<%= s.id %>">
-<%= s.nama_seller %>
-</option>
+                            </div>
 
-<% }) %>
+                            <button class="btn btn-primary">
+                                Simpan Toko
+                            </button>
 
-</select>
+                        </form>
 
-</div>
+                    </div>
 
-<div class="mb-3">
+                </div>
 
-<label>Nama Toko</label>
+            </div>
 
-<input
-type="text"
-name="nama_toko"
-class="form-control"
-required>
+            <!-- DATA -->
 
-</div>
+            <div class="col-md-8">
 
-<button class="btn btn-primary">
-Simpan Toko
-</button>
+                <div class="card shadow-sm mb-3">
 
-</form>
+                    <div class="card-header bg-dark text-white">
+                        Daftar Seller
+                    </div>
 
-</div>
+                    <div class="card-body table-responsive">
 
-</div>
+                        <table class="table table-bordered">
 
-</div>
+                            <thead>
 
-<!-- DATA -->
+                                <tr>
 
-<div class="col-md-8">
+                                    <th>Nama Seller</th>
+                                    <th width="100">Aksi</th>
 
-<div class="card shadow-sm mb-3">
+                                </tr>
 
-<div class="card-header bg-dark text-white">
-Daftar Seller
-</div>
+                            </thead>
 
-<div class="card-body table-responsive">
+                            <tbody>
 
-<table class="table table-bordered">
+                                <% seller.forEach(s=>{ %>
 
-<thead>
+                                    <tr>
 
-<tr>
+                                        <td>
+                                            <%= s.nama_seller %>
+                                        </td>
 
-<th>Nama Seller</th>
-<th width="100">Aksi</th>
+                                        <td>
 
-</tr>
+                                            <form action="/seller/<%= s.id %>/hapus" method="POST">
 
-</thead>
+                                                <button class="btn btn-danger btn-sm">
 
-<tbody>
+                                                    Hapus
 
-<% seller.forEach(s=>{ %>
+                                                </button>
 
-<tr>
+                                            </form>
 
-<td>
-<%= s.nama_seller %>
-</td>
+                                        </td>
 
-<td>
+                                    </tr>
 
-<form
-action="/seller/<%= s.id %>/hapus"
-method="POST">
+                                    <% }) %>
 
-<button
-class="btn btn-danger btn-sm">
+                            </tbody>
 
-Hapus
+                        </table>
 
-</button>
+                    </div>
 
-</form>
+                </div>
 
-</td>
+                <div class="card shadow-sm">
 
-</tr>
+                    <div class="card-header bg-warning">
+                        Daftar Toko Seller
+                    </div>
 
-<% }) %>
+                    <div class="card-body table-responsive">
 
-</tbody>
+                        <table class="table table-bordered">
 
-</table>
+                            <thead>
 
-</div>
+                                <tr>
 
-</div>
+                                    <th>Seller</th>
+                                    <th>Nama Toko</th>
+                                    <th width="100">Aksi</th>
 
-<div class="card shadow-sm">
+                                </tr>
 
-<div class="card-header bg-warning">
-Daftar Toko Seller
-</div>
+                            </thead>
 
-<div class="card-body table-responsive">
+                            <tbody>
 
-<table class="table table-bordered">
+                                <% toko.forEach(t=>{ %>
 
-<thead>
+                                    <tr>
 
-<tr>
+                                        <td>
+                                            <%= t.nama_seller %>
+                                        </td>
 
-<th>Seller</th>
-<th>Nama Toko</th>
-<th width="100">Aksi</th>
+                                        <td>
+                                            <%= t.nama_toko %>
+                                        </td>
 
-</tr>
+                                        <td>
 
-</thead>
+                                            <form action="/seller/toko/<%= t.id %>/hapus" method="POST">
 
-<tbody>
+                                                <button class="btn btn-danger btn-sm">
 
-<% toko.forEach(t=>{ %>
+                                                    Hapus
 
-<tr>
+                                                </button>
 
-<td>
-<%= t.nama_seller %>
-</td>
+                                            </form>
 
-<td>
-<%= t.nama_toko %>
-</td>
+                                        </td>
 
-<td>
+                                    </tr>
 
-<form
-action="/seller/toko/<%= t.id %>/hapus"
-method="POST">
+                                    <% }) %>
 
-<button
-class="btn btn-danger btn-sm">
+                            </tbody>
 
-Hapus
+                        </table>
 
-</button>
+                    </div>
 
-</form>
+                </div>
 
-</td>
+            </div>
 
-</tr>
+        </div>
 
-<% }) %>
-
-</tbody>
-
-</table>
-
-</div>
-
-</div>
-
-</div>
-
-</div>
-
-</div>
+    </div>
 
 </body>
+
 </html>
