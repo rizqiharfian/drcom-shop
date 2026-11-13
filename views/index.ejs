@@ -82,8 +82,9 @@
                 href="/barang-hilang">Barang Hilang</a></li>
             <li class="nav-item"><a class="nav-link <%= currentPath === '/produk' ? 'active' : '' %>"
                 href="/produk">Produk</a></li>
-            <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Sparepart</a>
+            <li class="nav-item"><a class="nav-link <%= currentPath === '/service-user' ? 'active' : '' %>"
+                href="/service-user">Service User</a></li>
+            <li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Sparepart</a>
               <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="/sparepart">Master Sparepart</a></li>
                 <!-- <li><a class="dropdown-item" href="/sparepart-masuk">Sparepart Masuk</a></li> -->
@@ -614,82 +615,159 @@
         </ul>
       </div>
     </div>
-
+    
     <div class="table-responsive mb-2">
-      <table class="table table-bordered table-striped table-fixed">
-        <thead class="table-dark text-center">
-          <tr>
-            <th style="width:60px">No</th>
-            <th style="width:60px">Ref</th>
-            <th>Tujuan</th>
-            <th>Produk</th>
-            <th style="width:90px">Jumlah</th>
-            <th>Keterangan</th>
-            <th style="width:180px">Tanggal</th>
-            <th style="width:130px">Aksi</th>
-          </tr>
-        </thead>
-        <tbody id="tbBK" class="text-center">
-          <% if (barangKeluarList && barangKeluarList.length> 0) {
-            barangKeluarList.forEach((tx, txIdx) => {
-            const txDate = tx.created_at || tx.tanggal || null;
-            (tx.items || []).forEach((it, itIdx) => {
-            %>
-            <tr data-tx-index="<%= txIdx %>">
-              <td class="row-no"></td>
-              <td class="cell-ref">
-                <%= txIdx + 1 %>
-              </td>
-              <td class="cell-tujuan text-start">
-                <%= tx.tujuan %>
-              </td>
-              <td class="cell-produk text-start">
-                <%= it.nama || it.produk_id %>
-              </td>
-              <td class="cell-jumlah">
-                <%= it.jumlah %>
-              </td>
-              <td class="cell-keterangan text-start">
-                <%= it.keterangan || '-' %>
-              </td>
-              <td class="cell-tanggal">
-                <%= txDate ? new Date(txDate).toLocaleString('id-ID') : '-' %>
-              </td>
-              <td class="cell-aksi text-center">
-                <!-- Tombol lihat -->
-                <a href="/barang-keluar/<%= tx.id %>" class="btn btn-sm btn-info me-1" title="Lihat">
-                  <i class="bi bi-eye"></i>
-                </a>
+        <table class="table table-bordered table-striped table-fixed">
+            <thead class="table-dark text-center">
+                <tr>
+                    <th style="width:60px">No</th>
+                    <th style="width:60px">Ref</th>
+                    <th>Tujuan</th>
+                    <th>Produk</th>
+                    <th style="width:90px">Jumlah</th>
+                    <th>Keterangan</th>
+                    <th style="width:180px">Tanggal</th>
+                    <th style="width:120px">Status</th>
+                    <th style="width:190px">Aksi</th>
+                </tr>
+            </thead>
 
-                <% const st=it.status==1 ? 1 : 2; const isDone=(st===1); %>
+            <tbody id="tbBK" class="text-center">
+                <% if (barangKeluarList && barangKeluarList.length > 0) {
+                    barangKeluarList.forEach((tx, txIdx) => {
+                        const txDate = tx.created_at || tx.tanggal || null;
 
-                  <% if (isDone) { %>
-                    <!-- Selesai: badge hijau, disabled (tidak bisa diklik) -->
-                    <button type="button" class="btn btn-sm btn-success me-1" disabled title="Selesai">
-                      <i class="bi bi-check2"></i>
-                    </button>
-                    <% } else { %>
-                      <!-- Pending: merah, bisa diklik untuk menyelesaikannya -->
-                      <button type="button" class="btn btn-sm me-1 btn-complete btn-danger"
-                        data-detail-id="<%= it.detail_id %>"
-                        title="Pending — klik untuk tandai selesai (stok akan dikembalikan)">
-                        <i class="bi bi-x-lg"></i>
-                      </button>
-                      <% } %>
+                        (tx.items || []).forEach((it, itIdx) => {
+                            const st = Number(it.status ?? 2);
+                %>
+                    <tr data-tx-index="<%= txIdx %>">
+                        <td class="row-no"></td>
 
-                        <!-- Edit Transaksi -->
-                        <a href="/barang-keluar/edit/<%= tx.id %>" class="btn btn-sm btn-warning" title="Edit">
-                          <i class="bi bi-pencil-square"></i>
-                        </a>
-              </td>
-            </tr>
-            <% }); }); } else { %>
-              <tr class="empty">
-                <td colspan="8" class="text-muted">Belum ada barang keluar.</td>
-              </tr>
-              <% } %>
-        </tbody>
-      </table>
+                        <td class="cell-ref">
+                            <%= tx.id %>
+                        </td>
+
+                        <td class="cell-tujuan text-start">
+                            <%= tx.tujuan %>
+                        </td>
+
+                        <td class="cell-produk text-start">
+                            <%= it.nama || it.produk_id %>
+                        </td>
+
+                        <td class="cell-jumlah">
+                            <%= it.jumlah %>
+                        </td>
+
+                        <td class="cell-keterangan text-start">
+                            <%= it.keterangan || '-' %>
+                        </td>
+
+                        <td class="cell-tanggal">
+                            <%= txDate ? new Date(txDate).toLocaleString('id-ID') : '-' %>
+                        </td>
+
+                        <!-- STATUS -->
+                        <td class="cell-status">
+                            <% if (st === 2) { %>
+                                <span class="badge bg-primary">PROSES</span>
+                            <% } else if (st === 1) { %>
+                                <span class="badge bg-success">SELESAI</span>
+                            <% } else if (st === 0) { %>
+                                <span class="badge bg-danger">CANCEL</span>
+                            <% } else { %>
+                                <span class="badge bg-secondary">TIDAK DIKETAHUI</span>
+                            <% } %>
+                        </td>
+
+                        <!-- AKSI -->
+                        <td class="cell-aksi text-center">
+
+                            <!-- Lihat -->
+                            <a href="/barang-keluar/<%= tx.id %>"
+                              class="btn btn-sm btn-info mb-1"
+                              title="Lihat">
+                                <i class="bi bi-eye"></i>
+                            </a>
+
+                            <!-- Edit -->
+                            <a href="/barang-keluar/edit/<%= tx.id %>"
+                              class="btn btn-sm btn-warning mb-1"
+                              title="Edit Barang dan Status">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+
+                            <!-- Ubah Status menjadi PROSES -->
+                            <% if (st !== 2) { %>
+
+                                <form action="/barang-keluar/status/<%= it.detail_id %>"
+                                      method="POST"
+                                      class="d-inline"
+                                      onsubmit="return confirm('Yakin ingin mengubah status barang menjadi PROSES? Stok akan dipotong kembali jika sebelumnya CANCEL.')">
+
+                                    <input type="hidden" name="status" value="2">
+
+                                    <button type="submit"
+                                            class="btn btn-sm btn-primary mb-1"
+                                            title="Ubah menjadi PROSES">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </button>
+                                </form>
+
+                            <% } %>
+
+                            <!-- Ubah Status menjadi SELESAI -->
+                            <% if (st !== 1) { %>
+
+                                <form action="/barang-keluar/status/<%= it.detail_id %>"
+                                      method="POST"
+                                      class="d-inline"
+                                      onsubmit="return confirm('Yakin ingin mengubah status barang menjadi SELESAI?')">
+
+                                    <input type="hidden" name="status" value="1">
+
+                                    <button type="submit"
+                                            class="btn btn-sm btn-success mb-1"
+                                            title="Ubah menjadi SELESAI">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+
+                            <% } %>
+
+                            <!-- Ubah Status menjadi CANCEL -->
+                            <% if (st !== 0) { %>
+
+                                <form action="/barang-keluar/status/<%= it.detail_id %>"
+                                      method="POST"
+                                      class="d-inline"
+                                      onsubmit="return confirm('Yakin ingin membatalkan barang keluar ini? Stok akan dikembalikan.')">
+
+                                    <input type="hidden" name="status" value="0">
+
+                                    <button type="submit"
+                                            class="btn btn-sm btn-danger mb-1"
+                                            title="Ubah menjadi CANCEL">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </form>
+
+                            <% } %>
+
+                        </td>
+                    </tr>
+
+                <% }); }); } else { %>
+
+                    <tr class="empty">
+                        <td colspan="9" class="text-muted">
+                            Belum ada barang keluar.
+                        </td>
+                    </tr>
+
+                <% } %>
+            </tbody>
+        </table>
     </div>
     <nav>
       <ul id="paginationBK" class="pagination"></ul>
@@ -708,7 +786,7 @@
           <tr>
             <th width="60">No</th>
             <th>Tujuan</th>
-            <th>Nama Barang</th>
+            <th>Produk</th>
             <th width="100">Jumlah</th>
             <th>Keterangan</th>
             <th width="150">Status</th>
@@ -799,6 +877,162 @@
     <nav>
       <ul id="paginationBarangKeluarAlex" class="pagination"></ul>
     </nav>
+    
+    <hr>
+
+    <!-- ================= RIWAYAT SERVICE USER ================= -->
+    <div>
+        <div>
+            <h3 class="text-center mb-3">Riwayat Service User</h3>
+            <!-- <small class="text-muted">Daftar layanan perbaikan customer DR.COM</small> -->
+        </div>
+
+        <!-- EXPORT PDF SERVICE USER -->
+        <div class="d-flex justify-content-end mb-3">
+          <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+            <i class="bi bi-file-earmark-pdf"></i>Export PDF</button>
+
+            <ul class="dropdown-menu dropdown-menu-end p-3" style="min-width: 270px;">
+
+              <li><a class="dropdown-item" href="#" id="exportSU_today"><i class="bi bi-calendar-day me-2"></i>Harian</a></li>
+              <li><a class="dropdown-item" href="#" id="exportSU_week"><i class="bi bi-calendar-week me-2"></i>Mingguan</a></li>
+              <li><a class="dropdown-item" href="#" id="exportSU_month"><i class="bi bi-calendar-month me-2"></i>Bulanan</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <label class="form-label small fw-bold">Pilih Rentang Tanggal</label>
+                <div class="mb-2"><label class="form-label small mb-1">Dari Tanggal</label>
+                <input type="date" id="exportSU_start" class="form-control form-control-sm"></div>
+
+                <div class="mb-2"><label class="form-label small mb-1">Sampai Tanggal</label>
+                <input type="date" id="exportSU_end" class="form-control form-control-sm"></div>
+                <button type="button" id="exportSU_custom"class="btn btn-primary btn-sm w-100"><i class="bi bi-download me-1"></i>Export PDF</button>
+              </li>
+
+            </ul>
+          </div>
+        </div>
+        <!-- <a href="/service-user" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Tambah Service
+        </a> -->
+    </div>
+
+    <!-- Search Service -->
+    <!-- <div class="row mb-3">
+        <div class="col-md-5">
+            <input type="search"
+                  id="searchServiceUser"
+                  class="form-control"
+                  placeholder="Cari customer, barang, teknisi, atau status...">
+        </div>
+    </div> -->
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover table-striped align-middle">
+            <thead class="table-dark text-center">
+                <tr>
+                    <th style="width:50px">No</th>
+                    <th>Customer</th>
+                    <th>No. HP</th>
+                    <th>Produk</th>
+                    <th>Keluhan</th>
+                    <th>Teknisi</th>
+                    <!-- <th>Biaya</th> -->
+                    <th>Status</th>
+                    <th>Tanggal</th>
+                    <th style="width:110px">Aksi</th>
+                </tr>
+            </thead>
+
+            <tbody id="serviceUserTableBody" class="text-center">
+
+                <% if (serviceUserList && serviceUserList.length > 0) { %>
+
+                    <% serviceUserList.forEach((s, idx) => { %>
+                        <tr class="service-user-row">
+                            <td class="service-user-no"><%= idx + 1 %></td>
+
+                            <td class="text-start">
+                                <strong><%= s.nama_customer %></strong>
+                            </td>
+
+                            <td><%= s.no_hp || '-' %></td>
+
+                            <td class="text-start"><%= s.nama_barang %></td>
+
+                            <td class="text-start"><%= s.keluhan %></td>
+
+                            <td><%= s.teknisi || '-' %></td>
+
+                            <!-- <td class="text-nowrap">
+                                Rp <%= Number(s.biaya || 0).toLocaleString('id-ID') %>
+                            </td> -->
+
+                            <td>
+                                <% if (s.status === 'PENDING') { %>
+                                    <span class="badge bg-secondary">Pending</span>
+                                <% } else if (s.status === 'PROSES') { %>
+                                    <span class="badge bg-warning text-dark">Proses</span>
+                                <% } else if (s.status === 'SELESAI') { %>
+                                    <span class="badge bg-success">Selesai</span>
+                                <% } else if (s.status === 'CANCEL') { %>
+                                    <span class="badge bg-danger">Cancel</span>
+                                <% } %>
+                            </td>
+
+                            <td class="text-nowrap">
+                                <%= s.tanggal
+                                    ? new Date(s.tanggal).toLocaleString('id-ID')
+                                    : '-' %>
+                            </td>
+
+                            <td>
+                                <div class="d-flex justify-content-center gap-1">
+                                    <a href="/service-user/edit/<%= s.id %>"
+                                      class="btn btn-warning btn-sm"
+                                      title="Edit">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </a>
+
+                                    <form action="/service-user/delete/<%= s.id %>"
+                                          method="POST"
+                                          onsubmit="return confirm('Yakin ingin menghapus data service ini?')">
+
+                                        <button type="submit"
+                                                class="btn btn-danger btn-sm"
+                                                title="Hapus">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    <% }) %>
+
+                <% } else { %>
+                    <tr class="empty">
+                        <td colspan="10" class="text-center text-muted py-4">
+                            Belum ada riwayat service user.
+                        </td>
+                    </tr>
+                <% } %>
+
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Informasi dan Pagination -->
+    <div>
+        <!-- <small id="serviceUserPageInfo" class="text-muted mb-2">
+            Menampilkan 0 data
+        </small> -->
+
+        <nav>
+            <ul id="paginationServiceUser" class="pagination pagination-sm mb-0">
+            </ul>
+        </nav>
+    </div>
+
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
@@ -879,7 +1113,7 @@
 
         // update numbering (global order across visible rows)
         visible.forEach((r, idx) => {
-          const noCell = r.querySelector('.row-no');
+          const noCell = r.querySelector('.row-no, .service-user-no');
           if (noCell) noCell.textContent = idx + 1;
         });
 
@@ -896,7 +1130,7 @@
     function applyFilter() {
       const q = (searchInput.value || '').trim().toLowerCase();
       // tables to filter
-      const tableBodies = ['tbPembelian', 'tbBM', 'tbBK', 'tbBarangKeluarAlex'];
+      const tableBodies = ['tbPembelian', 'tbBM', 'tbBK', 'tbBarangKeluarAlex', 'serviceUserTableBody'];
       tableBodies.forEach(id => {
         const tbody = document.getElementById(id);
         if (!tbody) return;
@@ -917,6 +1151,7 @@
       paginateTable('tbBM', 'paginationBM', 5);
       paginateTable('tbBK', 'paginationBK', 5);
       paginateTable('tbBarangKeluarAlex', 'paginationBarangKeluarAlex', 5);
+      paginateTable('serviceUserTableBody', 'paginationServiceUser', 5);
     }
 
     // debounce helper
@@ -933,6 +1168,7 @@
       paginateTable('tbBM', 'paginationBM', 5);
       paginateTable('tbBK', 'paginationBK', 5);
       paginateTable('tbBarangKeluarAlex', 'paginationBarangKeluarAlex', 5);
+      paginateTable('serviceUserTableBody', 'paginationServiceUser', 5);
     });
   </script>
   <!-- letakkan sebelum </body> -->
@@ -1643,6 +1879,114 @@
       }
 
       render();
+
+    })();
+
+    // ==========================================
+    // EXPORT PDF SERVICE USER
+    // ==========================================
+
+    (function () {
+      const el = (id) => document.getElementById(id);
+
+      function toYMD(date) {
+        const pad = n => String(n).padStart(2, '0');
+
+        return date.getFullYear() + '-' +
+          pad(date.getMonth() + 1) + '-' +
+          pad(date.getDate());
+      }
+
+      // Minggu dimulai Senin dan berakhir Minggu
+      function weekRange(date) {
+        const current = new Date(
+          date.getFullYear(),
+          date.getMonth(),
+          date.getDate()
+        );
+
+        const day = (current.getDay() + 6) % 7;
+
+        const monday = new Date(current);
+        monday.setDate(current.getDate() - day);
+
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+
+        return {
+          start: toYMD(monday),
+          end: toYMD(sunday)
+        };
+      }
+
+      function openExportServiceUser(start, end) {
+        if (!start || !end) {
+          alert('Silakan pilih tanggal mulai dan akhir.');
+          return;
+        }
+
+        if (start > end) {
+          alert('Tanggal mulai tidak boleh melebihi tanggal akhir.');
+          return;
+        }
+
+        const url =
+          `/export/service-user/pdf?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+
+        window.open(url, '_blank');
+      }
+
+      // HARI INI
+      el('exportSU_today')?.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        const today = toYMD(new Date());
+
+        openExportServiceUser(today, today);
+      });
+
+      // MINGGU INI
+      el('exportSU_week')?.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        const range = weekRange(new Date());
+
+        openExportServiceUser(range.start, range.end);
+      });
+
+      // BULAN INI
+      el('exportSU_month')?.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        const now = new Date();
+
+        const start =
+          now.getFullYear() + '-' +
+          String(now.getMonth() + 1).padStart(2, '0') +
+          '-01';
+
+        const lastDay = new Date(
+          now.getFullYear(),
+          now.getMonth() + 1,
+          0
+        ).getDate();
+
+        const end =
+          now.getFullYear() + '-' +
+          String(now.getMonth() + 1).padStart(2, '0') +
+          '-' +
+          String(lastDay).padStart(2, '0');
+
+        openExportServiceUser(start, end);
+      });
+
+      // CUSTOM RANGE
+      el('exportSU_custom')?.addEventListener('click', function () {
+        const start = el('exportSU_start').value;
+        const end = el('exportSU_end').value;
+
+        openExportServiceUser(start, end);
+      });
 
     })();
 

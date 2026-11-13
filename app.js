@@ -277,6 +277,12 @@ app.get('/', async (req, res) => {
       ORDER BY bh.created_at DESC
     `);
 
+    const serviceUserList = await q(`
+        SELECT *
+        FROM service_user
+        ORDER BY tanggal DESC, id DESC
+    `);
+
     // render index dengan semua data
     res.render('index', {
       produk,
@@ -286,7 +292,8 @@ app.get('/', async (req, res) => {
       barangKeluarAlexList,
       barangHilang,
       seller,
-      toko
+      toko,
+      serviceUserList
     });
   } catch (err) {
     console.error('GET / error:', err);
@@ -3851,49 +3858,45 @@ app.get('/stok/semarang/export-pdf', async (req, res) => {
     //   ).toLocaleString('id-ID')
     // );
 
-    // =================================
-    // TANDA TANGAN 4 KOLOM
-    // =================================
+    const ttdY = footerY + 120;
 
-    // const ttdY = footerY + 120;
+    doc.font('Helvetica');
 
-    // doc.font('Helvetica');
+    // posisi kolom
+    const col1 = 360; // Mengetahui
+    const col2 = 500; // Penerima
+    const col3 = 640; // Pengirim
+    const col4 = 760; // Kurir
 
-    // // posisi kolom
-    // const col1 = 360; // Mengetahui
-    // const col2 = 500; // Penerima
-    // const col3 = 640; // Pengirim
-    // const col4 = 760; // Kurir
+    // Judul
+    doc.text('Mengetahui,', col1, ttdY);
+    doc.text('Penerima,', col2, ttdY);
+    doc.text('Pengirim,', col3, ttdY);
+    doc.text('Kurir,', col4, ttdY);
 
-    // // Judul
-    // doc.text('Mengetahui,', col1, ttdY);
-    // doc.text('Penerima,', col2, ttdY);
-    // doc.text('Pengirim,', col3, ttdY);
-    // doc.text('Kurir,', col4, ttdY);
+    // ruang tanda tangan
+    const namaY = ttdY + 70;
 
-    // // ruang tanda tangan
-    // const namaY = ttdY + 70;
+    // Nama
+    doc.text('(Deny Irawan)', col1 - 10, namaY);
 
-    // // Nama
-    // doc.text('(Deny Irawan)', col1 - 10, namaY);
+    doc.text(
+      '(....................)',
+      col2 - 15,
+      namaY
+    );
 
-    // doc.text(
-    //   '(....................)',
-    //   col2 - 15,
-    //   namaY
-    // );
+    doc.text(
+      '(Tian Saputra)',
+      col3 - 10,
+      namaY
+    );
 
-    // doc.text(
-    //   '(Tian Saputra)',
-    //   col3 - 10,
-    //   namaY
-    // );
-
-    // doc.text(
-    //   '(....................)',
-    //   col4 - 15,
-    //   namaY
-    // );
+    doc.text(
+      '(....................)',
+      col4 - 15,
+      namaY
+    );
 
     doc.end();
 
@@ -6147,8 +6150,8 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
 
       // insert detail termasuk kolom gambar dan status = 2 (pending)
       await q(
-        'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
-        [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
+          'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
+          [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
       );
 
       // update stock
@@ -6175,6 +6178,124 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
     try { await rollback(); } catch (_) { }
     res.status(500).send('Gagal menyimpan barang keluar.');
   }
+});
+
+// ==========================================
+// UBAH STATUS BARANG KELUAR
+// ==========================================
+app.post('/barang-keluar/status/:detailId', async (req, res) => {
+    let transactionStarted = false;
+
+    try {
+        const detailId = parseInt(req.params.detailId, 10);
+        const statusBaru = parseInt(req.body.status, 10);
+
+        if (!detailId || ![0, 1, 2].includes(statusBaru)) {
+            return res.status(400).send('Data status tidak valid.');
+        }
+
+        await beginTransaction();
+        transactionStarted = true;
+
+        // Ambil detail barang
+        const rows = await q(
+            `SELECT id, produk_id, jumlah, status
+             FROM barang_keluar_detail
+             WHERE id = ?
+             FOR UPDATE`,
+            [detailId]
+        );
+
+        if (!rows.length) {
+            throw new Error('Detail barang tidak ditemukan.');
+        }
+
+        const item = rows[0];
+
+        const statusLama = Number(item.status ?? 2);
+        const produkId = Number(item.produk_id);
+        const jumlah = Number(item.jumlah);
+
+        // Hanya PROSES (2) yang memotong stok
+        const stokLamaDipotong = statusLama === 2;
+        const stokBaruHarusDipotong = statusBaru === 2;
+
+        // Jika sebelumnya PROSES dan sekarang bukan PROSES,
+        // kembalikan stok
+        if (stokLamaDipotong && !stokBaruHarusDipotong) {
+
+            const restore = await q(
+                `UPDATE stock_cabang
+                 SET jumlah = jumlah + ?
+                 WHERE produk_id = ? AND cabang_id = 1`,
+                [jumlah, produkId]
+            );
+
+            if (!restore.affectedRows) {
+                throw new Error('Data stok produk tidak ditemukan.');
+            }
+        }
+
+        // Jika sebelumnya bukan PROSES dan sekarang PROSES,
+        // potong stok kembali
+        if (!stokLamaDipotong && stokBaruHarusDipotong) {
+
+            const stokRows = await q(
+                `SELECT jumlah
+                 FROM stock_cabang
+                 WHERE produk_id = ? AND cabang_id = 1
+                 FOR UPDATE`,
+                [produkId]
+            );
+
+            if (!stokRows.length) {
+                throw new Error('Data stok produk tidak ditemukan.');
+            }
+
+            const stokTersedia = Number(stokRows[0].jumlah);
+
+            if (stokTersedia < jumlah) {
+                throw new Error(
+                    `Stok tidak cukup. Tersedia ${stokTersedia}, dibutuhkan ${jumlah}.`
+                );
+            }
+
+            await q(
+                `UPDATE stock_cabang
+                 SET jumlah = jumlah - ?
+                 WHERE produk_id = ? AND cabang_id = 1`,
+                [jumlah, produkId]
+            );
+        }
+
+        // Simpan status baru
+        await q(
+            `UPDATE barang_keluar_detail
+             SET status = ?
+             WHERE id = ?`,
+            [statusBaru, detailId]
+        );
+
+        await commit();
+        transactionStarted = false;
+
+        return res.redirect('/');
+
+    } catch (err) {
+        console.error('Ubah status barang keluar error:', err);
+
+        if (transactionStarted) {
+            try {
+                await rollback();
+            } catch (rollbackErr) {
+                console.error('Rollback error:', rollbackErr);
+            }
+        }
+
+        return res.status(400).send(
+            err.message || 'Gagal mengubah status.'
+        );
+    }
 });
 
 // POST /barang-keluar/detail/:detailId/complete
@@ -6283,136 +6404,299 @@ app.get('/barang-keluar/:id', async (req, res) => {
   }
 });
 
-// === ROUTE: Edit form (GET) ===
+// ==========================================
+// ROUTE: EDIT BARANG KELUAR (GET)
+// ==========================================
 app.get('/barang-keluar/edit/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).send('ID tidak valid.');
+    try {
+        const id = parseInt(req.params.id, 10);
 
-    const trx = await q(`SELECT id, tujuan, jenis, tanggal FROM barang_keluar WHERE id=?`, [id]);
-    if (!trx || trx.length === 0) return res.status(404).send('Transaksi tidak ditemukan.');
+        if (!id) {
+            return res.status(400).send('ID tidak valid.');
+        }
 
-    const items = await q(
-      `SELECT bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan, bkd.gambar, p.nama
-       FROM barang_keluar_detail bkd
-       LEFT JOIN produk p ON bkd.produk_id = p.id
-       WHERE bkd.barang_keluar_id = ?`, [id]
-    );
+        // Ambil data transaksi
+        const trx = await q(
+            `SELECT id, tujuan, jenis, tanggal
+             FROM barang_keluar
+             WHERE id = ?`,
+            [id]
+        );
 
-    // kirim list produk juga untuk dropdown jika butuh ganti produk
-    const produkList = await q('SELECT id, nama FROM produk ORDER BY nama ASC');
+        if (!trx || trx.length === 0) {
+            return res.status(404).send('Transaksi tidak ditemukan.');
+        }
 
-    res.render('barang_keluar_edit', { transaksi: trx[0], items: items || [], produkList });
-  } catch (err) {
-    console.error('GET /barang-keluar/edit/:id error:', err);
-    res.status(500).send('Gagal membuka form edit.');
-  }
+        // Ambil detail barang termasuk status
+        const items = await q(
+            `SELECT
+                bkd.id AS detail_id,
+                bkd.produk_id,
+                bkd.jumlah,
+                bkd.keterangan,
+                bkd.gambar,
+                COALESCE(bkd.status, 2) AS status,
+                p.nama
+             FROM barang_keluar_detail bkd
+             LEFT JOIN produk p ON bkd.produk_id = p.id
+             WHERE bkd.barang_keluar_id = ?
+             ORDER BY bkd.id ASC`,
+            [id]
+        );
+
+        // Daftar produk untuk dropdown
+        const produkList = await q(
+            'SELECT id, nama FROM produk ORDER BY nama ASC'
+        );
+
+        res.render('barang_keluar_edit', {
+            transaksi: trx[0],
+            items: items || [],
+            produkList: produkList || []
+        });
+
+    } catch (err) {
+        console.error('GET edit barang keluar error:', err);
+        res.status(500).send('Gagal membuka form edit.');
+    }
 });
 
-// === ROUTE: Edit (POST) - menerima multipart/form-data dari form edit
-// Expect field names: tujuan (string), for each item: detail_id[], produk_id[], jumlah[], keterangan[]
-// And uploaded files per item: input name: gambar_<detail_id>  (optional)
+
+// ==========================================
+// ROUTE: EDIT BARANG KELUAR (POST)
+// ==========================================
 app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).send('ID tidak valid.');
 
-    // parse body arrays
-    const { tujuan } = req.body;
-    const detailIds = Array.isArray(req.body.detail_id) ? req.body.detail_id : (req.body.detail_id ? [req.body.detail_id] : []);
-    const produkIds = Array.isArray(req.body.produk_id) ? req.body.produk_id : (req.body.produk_id ? [req.body.produk_id] : []);
-    const jumlahs = Array.isArray(req.body.jumlah) ? req.body.jumlah : (req.body.jumlah ? [req.body.jumlah] : []);
-    const ketArr = Array.isArray(req.body.keterangan) ? req.body.keterangan : (req.body.keterangan ? [req.body.keterangan] : []);
+    let transactionStarted = false;
 
-    // map files by fieldname
-    const filesByField = {};
-    (req.files || []).forEach(f => { filesByField[f.fieldname] = f; });
+    try {
+        const id = parseInt(req.params.id, 10);
+        const tujuan = req.body.tujuan;
 
-    // validate lengths
-    if (detailIds.length === 0) return res.status(400).send('Tidak ada item untuk diperbarui.');
-
-    // Fetch current detail records to compute delta stok
-    const currentRows = await q('SELECT id, produk_id, jumlah FROM barang_keluar_detail WHERE barang_keluar_id = ?', [id]);
-    const currentById = {};
-    currentRows.forEach(r => currentById[r.id] = r);
-
-    await beginTransaction();
-
-    // update header
-    await q('UPDATE barang_keluar SET tujuan = ? WHERE id = ?', [tujuan || null, id]);
-
-    // iterate items, update each detail and adjust stock accordingly
-    for (let i = 0; i < detailIds.length; i++) {
-      const did = parseInt(detailIds[i], 10);
-      const newProdukId = parseInt(produkIds[i], 10);
-      const newJumlah = parseInt(jumlahs[i], 10) || 0;
-      const newKet = ketArr[i] ?? null;
-
-      if (!did || !Number.isInteger(newProdukId) || newJumlah <= 0) {
-        await rollback();
-        return res.status(400).send('Data item tidak valid.');
-      }
-
-      const cur = currentById[did];
-      if (!cur) {
-        await rollback();
-        return res.status(400).send('Detail item tidak ditemukan: ' + did);
-      }
-
-      // if produk_id changed, we need to add back old stock and subtract new stock
-      // if same produk_id, compute delta = new - old and subtract accordingly (barang keluar reduces stock)
-      if (cur.produk_id === newProdukId) {
-        const delta = newJumlah - cur.jumlah; // positive => more taken out (need more stock), negative => return some stock
-        if (delta > 0) {
-          // check available stock
-          const rows = await q('SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=1', [newProdukId]);
-          const curStock = (rows && rows.length) ? rows[0].jumlah : 0;
-          if (curStock < delta) {
-            await rollback();
-            return res.status(400).send(`Stok tidak cukup untuk produk id ${newProdukId} (butuh ${delta}, tersisa ${curStock}).`);
-          }
-          await q('UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id = ?', [delta, newProdukId]);
-        } else if (delta < 0) {
-          // return stok (kurangi negative => add)
-          await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [Math.abs(delta), newProdukId]);
+        if (!id) {
+            return res.status(400).send('ID tidak valid.');
         }
-      } else {
-        // produk berubah: kembalikan stok lama, potong stok baru
-        // add back old
-        await q('UPDATE stock_cabang SET jumlah = jumlah + ? WHERE produk_id = ?', [cur.jumlah, cur.produk_id]);
 
-        // subtract new
-        const rows2 = await q('SELECT jumlah FROM stock_cabang WHERE produk_id=? AND cabang_id=1', [newProdukId]);
-        const curStock2 = (rows2 && rows2.length) ? rows2[0].jumlah : 0;
-        if (curStock2 < newJumlah) {
-          await rollback();
-          return res.status(400).send(`Stok tidak cukup untuk produk id ${newProdukId} (butuh ${newJumlah}, tersisa ${curStock2}).`);
+        // Helper untuk memastikan input menjadi array
+        const toArray = (value) => {
+            if (value === undefined || value === null) return [];
+            return Array.isArray(value) ? value : [value];
+        };
+
+        const detailIds = toArray(req.body.detail_id);
+        const produkIds = toArray(req.body.produk_id);
+        const jumlahs = toArray(req.body.jumlah);
+        const ketArr = toArray(req.body.keterangan);
+        const statusArr = toArray(req.body.status);
+
+        if (!detailIds.length) {
+            return res.status(400).send('Tidak ada item untuk diperbarui.');
         }
-        await q('UPDATE stock_cabang SET jumlah = jumlah - ? WHERE produk_id = ?', [newJumlah, newProdukId]);
-      }
 
-      // handle optional uploaded gambar for this detail: name expected 'gambar_<detailId>' (client form should match)
-      let gambarFilename = null;
-      const fileField = `gambar_${did}`;
-      if (filesByField[fileField]) {
-        gambarFilename = filesByField[fileField].filename;
-      }
+        if (
+            produkIds.length !== detailIds.length ||
+            jumlahs.length !== detailIds.length ||
+            ketArr.length !== detailIds.length ||
+            statusArr.length !== detailIds.length
+        ) {
+            return res.status(400).send('Data item tidak lengkap.');
+        }
 
-      // update detail record (include gambar only if ada upload)
-      if (gambarFilename) {
-        await q('UPDATE barang_keluar_detail SET produk_id = ?, jumlah = ?, keterangan = ?, gambar = ? WHERE id = ?', [newProdukId, newJumlah, newKet, gambarFilename, did]);
-      } else {
-        await q('UPDATE barang_keluar_detail SET produk_id = ?, jumlah = ?, keterangan = ? WHERE id = ?', [newProdukId, newJumlah, newKet, did]);
-      }
+        // Kelompokkan file berdasarkan nama field
+        const filesByField = {};
+
+        (req.files || []).forEach(file => {
+            filesByField[file.fieldname] = file;
+        });
+
+        // Mulai transaksi database
+        await beginTransaction();
+        transactionStarted = true;
+
+        // Pastikan transaksi utama tersedia
+        const header = await q(
+            `SELECT id
+             FROM barang_keluar
+             WHERE id = ?
+             FOR UPDATE`,
+            [id]
+        );
+
+        if (!header.length) {
+            throw new Error('Transaksi Barang Keluar tidak ditemukan.');
+        }
+
+        // Update tujuan transaksi
+        await q(
+            `UPDATE barang_keluar
+             SET tujuan = ?
+             WHERE id = ?`,
+            [tujuan || null, id]
+        );
+
+        // Proses setiap detail barang
+        for (let i = 0; i < detailIds.length; i++) {
+
+            const detailId = Number(detailIds[i]);
+            const newProdukId = Number(produkIds[i]);
+            const newJumlah = Number(jumlahs[i]);
+            const newKet = ketArr[i] ?? null;
+            const newStatus = Number(statusArr[i]);
+
+            // Validasi data
+            if (
+                !Number.isInteger(detailId) ||
+                detailId <= 0 ||
+                !Number.isInteger(newProdukId) ||
+                newProdukId <= 0 ||
+                !Number.isInteger(newJumlah) ||
+                newJumlah <= 0 ||
+                ![0, 1, 2].includes(newStatus)
+            ) {
+                throw new Error('Data barang atau status tidak valid.');
+            }
+
+            // Ambil data detail lama dan kunci barisnya
+            const currentRows = await q(
+                `SELECT id, produk_id, jumlah, gambar, status
+                 FROM barang_keluar_detail
+                 WHERE id = ?
+                   AND barang_keluar_id = ?
+                 FOR UPDATE`,
+                [detailId, id]
+            );
+
+            if (!currentRows.length) {
+                throw new Error(
+                    `Detail barang ID ${detailId} tidak ditemukan.`
+                );
+            }
+
+            const current = currentRows[0];
+
+            const oldProdukId = Number(current.produk_id);
+            const oldJumlah = Number(current.jumlah);
+            const oldStatus = Number(current.status ?? 2);
+
+            // Hanya status 2 (PROSES) yang mengurangi stok
+            const stokLamaTerpotong = oldStatus === 2;
+            const stokBaruHarusDipotong = newStatus === 2;
+
+            // ======================================
+            // 1. KEMBALIKAN STOK LAMA
+            // ======================================
+            if (stokLamaTerpotong) {
+
+                const restore = await q(
+                    `UPDATE stock_cabang
+                     SET jumlah = jumlah + ?
+                     WHERE produk_id = ?
+                       AND cabang_id = 1`,
+                    [oldJumlah, oldProdukId]
+                );
+
+                if (!restore.affectedRows) {
+                    throw new Error(
+                        `Stok lama produk ID ${oldProdukId} tidak ditemukan.`
+                    );
+                }
+            }
+
+            // ======================================
+            // 2. POTONG STOK BARU JIKA BUKAN CANCEL
+            // ======================================
+            if (stokBaruHarusDipotong) {
+
+                const stokRows = await q(
+                    `SELECT jumlah
+                     FROM stock_cabang
+                     WHERE produk_id = ?
+                       AND cabang_id = 1
+                     FOR UPDATE`,
+                    [newProdukId]
+                );
+
+                if (!stokRows.length) {
+                    throw new Error(
+                        `Data stok produk ID ${newProdukId} tidak ditemukan di cabang Jakarta.`
+                    );
+                }
+
+                const stokTersedia = Number(stokRows[0].jumlah);
+
+                if (stokTersedia < newJumlah) {
+                    throw new Error(
+                        `Stok produk ID ${newProdukId} tidak cukup. ` +
+                        `Stok tersedia: ${stokTersedia}, ` +
+                        `dibutuhkan: ${newJumlah}.`
+                    );
+                }
+
+                await q(
+                    `UPDATE stock_cabang
+                     SET jumlah = jumlah - ?
+                     WHERE produk_id = ?
+                       AND cabang_id = 1`,
+                    [newJumlah, newProdukId]
+                );
+            }
+
+            // ======================================
+            // 3. PROSES GAMBAR
+            // ======================================
+            const fileField = `gambar_${detailId}`;
+            const uploadedFile = filesByField[fileField];
+
+            const gambarBaru = uploadedFile
+                ? uploadedFile.filename
+                : current.gambar;
+
+            // ======================================
+            // 4. UPDATE DETAIL BARANG
+            // ======================================
+            await q(
+                `UPDATE barang_keluar_detail
+                 SET produk_id = ?,
+                     jumlah = ?,
+                     keterangan = ?,
+                     gambar = ?,
+                     status = ?
+                 WHERE id = ?
+                   AND barang_keluar_id = ?`,
+                [
+                    newProdukId,
+                    newJumlah,
+                    newKet,
+                    gambarBaru,
+                    newStatus,
+                    detailId,
+                    id
+                ]
+            );
+        }
+
+        // Semua proses berhasil
+        await commit();
+        transactionStarted = false;
+
+        return res.redirect('/');
+
+    } catch (err) {
+
+        console.error('POST edit barang keluar error:', err);
+
+        if (transactionStarted) {
+            try {
+                await rollback();
+            } catch (rollbackErr) {
+                console.error('Rollback error:', rollbackErr);
+            }
+        }
+
+        return res.status(400).send(
+            err.message || 'Gagal menyimpan perubahan Barang Keluar.'
+        );
     }
-
-    await commit();
-    return res.redirect('/');
-  } catch (err) {
-    console.error('POST /barang-keluar/edit/:id error:', err);
-    try { await rollback(); } catch (_) { }
-    return res.status(500).send('Gagal menyimpan perubahan.');
-  }
 });
 
 // ===================== EXPORT PDF: BARANG KELUAR (rapih, with status column) =====================
@@ -6784,6 +7068,31 @@ app.get('/export/all/pdf', async (req, res) => {
         hasRange
             ? await q(alexSql,[start,end])
             : await q(alexSql);
+
+    // =====================================================
+    // 5) SERVICE USER
+    // =====================================================
+
+    const serviceUserSql = `
+      SELECT
+        id,
+        nama_customer,
+        no_hp,
+        nama_barang,
+        keluhan,
+        tindakan,
+        teknisi,
+        biaya,
+        status,
+        tanggal
+      FROM service_user
+      ${hasRange ? 'WHERE DATE(tanggal) BETWEEN ? AND ?' : ''}
+      ORDER BY tanggal ASC, id ASC
+    `;
+
+    const serviceUserRows = hasRange
+      ? await q(serviceUserSql, [start, end])
+      : await q(serviceUserSql);
 
     // group barang keluar by bk_id (preserve insertion order)
     const groupedBK = {};
@@ -7271,6 +7580,145 @@ app.get('/export/all/pdf', async (req, res) => {
 
     // footer
     doc.moveDown(0.6);
+
+    // ======================================================
+    // 5) RIWAYAT SERVICE USER
+    // ======================================================
+
+    drawPageHeader('5) Riwayat Service User');
+
+    if (!serviceUserRows || serviceUserRows.length === 0) {
+
+      doc.fontSize(10)
+        .fillColor('gray')
+        .text('Tidak ada data Service User pada periode ini.', margin, doc.y);
+
+      doc.fillColor('black');
+
+    } else {
+
+      const columnsSU = [
+        { label: 'No', width: 22 },
+        { label: 'Customer', width: 55 },
+        { label: 'No HP', width: 65 },
+        { label: 'Barang', width: 85 },
+        { label: 'Keluhan', width: 80 },
+        { label: 'Teknisi', width: 48 },
+        { label: 'Biaya', width: 55 },
+        { label: 'Status', width: 55 },
+        { label: 'Tanggal', width: 68 }
+      ];
+
+      const totalWidthSU = columnsSU.reduce(
+        (total, col) => total + col.width, 0
+      );
+
+      function drawServiceUserHeader() {
+        const y = doc.y;
+
+        doc.save();
+        doc.fillColor('#142b4a')
+          .rect(margin, y, totalWidthSU, 20)
+          .fill();
+        doc.restore();
+
+        let x = margin;
+
+        columnsSU.forEach(col => {
+          doc.font('Helvetica-Bold')
+            .fontSize(7)
+            .fillColor('white')
+            .text(col.label, x + 2, y + 8, {
+              width: col.width - 4,
+              align: 'center'
+            });
+
+          x += col.width;
+        });
+
+        doc.y = y + 24;
+        doc.fillColor('black');
+      }
+
+      drawServiceUserHeader();
+
+      serviceUserRows.forEach((r, index) => {
+
+        const tanggal = r.tanggal
+          ? new Date(r.tanggal).toLocaleDateString('id-ID')
+          : '-';
+
+        const values = [
+          String(index + 1),
+          r.nama_customer || '-',
+          r.no_hp || '-',
+          r.nama_barang || '-',
+          r.keluhan || '-',
+          r.teknisi || '-',
+          'Rp ' + Number(r.biaya || 0).toLocaleString('id-ID'),
+          r.status || '-',
+          tanggal
+        ];
+
+        doc.font('Helvetica').fontSize(7);
+
+        const rowHeight = Math.max(
+          ...values.map((value, i) =>
+            doc.heightOfString(String(value), {
+              width: columnsSU[i].width - 6,
+              font: 'Helvetica',
+              fontSize: 7
+            })
+          ),
+          12
+        ) + 8;
+
+        const bottomLimit =
+          doc.page.height - (doc.page.margins.bottom || 40) - 40;
+
+        if (doc.y + rowHeight > bottomLimit) {
+          doc.addPage();
+          writeMainTitle();
+          drawPageHeader('5) Riwayat Service User');
+          drawServiceUserHeader();
+        }
+
+        const y = doc.y;
+        let x = margin;
+
+        // Warna baris selang-seling
+        doc.save();
+        doc.fillColor(index % 2 === 0 ? '#f1f4f8' : '#ffffff')
+          .rect(margin, y, totalWidthSU, rowHeight)
+          .fill();
+        doc.restore();
+
+        values.forEach((value, i) => {
+
+          doc.font('Helvetica')
+            .fontSize(7)
+            .fillColor('#222')
+            .text(String(value), x + 3, y + 4, {
+              width: columnsSU[i].width - 6,
+              height: rowHeight - 8,
+              align: i === 0 || i === 6 || i === 7
+                ? 'center'
+                : 'left'
+            });
+
+          x += columnsSU[i].width;
+        });
+
+        doc.save();
+        doc.lineWidth(0.3)
+          .strokeColor('#d5dce5')
+          .rect(margin, y, totalWidthSU, rowHeight)
+          .stroke();
+        doc.restore();
+
+        doc.y = y + rowHeight;
+      });
+    }
     doc.fontSize(9).fillColor('gray').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'right' });
 
     doc.end();
@@ -8134,228 +8582,6 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
 // });
 
-// ======================================================
-// EXPORT PDF SPAREPART
-// ======================================================
-
-app.get('/export/sparepart/pdf', async (req, res) => {
-
-  try {
-
-    const data = await q(`
-      SELECT *
-      FROM sparepart
-      ORDER BY
-      CAST(
-        REPLACE(
-          UPPER(kode_sparepart),
-          'SP',
-          ''
-        ) AS UNSIGNED
-      ) ASC
-    `);
-
-    const doc = new PDFDocument({
-      margin: 30,
-      size: 'A4',
-      layout: 'landscape'
-    });
-
-    res.setHeader(
-      'Content-Type',
-      'application/pdf'
-    );
-
-    res.setHeader(
-      'Content-Disposition',
-      'inline; filename=sparepart.pdf'
-    );
-
-    doc.pipe(res);
-
-    // ==================================
-    // HEADER
-    // ==================================
-
-    doc
-      .fontSize(18)
-      .text(
-        'DATA SPAREPART & AKSESORIS DRCOM',
-        {
-          align: 'center'
-        }
-      );
-
-    doc.moveDown(0.5);
-
-    doc
-      .fontSize(10)
-      .text(
-        `Dicetak: ${new Date().toLocaleString('id-ID')}`,
-        {
-          align: 'center'
-        }
-      );
-
-    doc.moveDown();
-
-    // ==================================
-    // KOLOM
-    // ==================================
-
-    let y = 130;
-
-    doc
-      .fontSize(9)
-      .font('Helvetica-Bold');
-
-    doc.text('No', 30, y);
-    doc.text('Kode', 60, y);
-    doc.text('Nama', 120, y);
-    doc.text('Kategori', 320, y);
-    // doc.text('Modal', 420, y);
-    // doc.text('Jual', 520, y);
-    doc.text('Stok', 500, y);
-    doc.text('Posisi', 560, y);
-
-    y += 20;
-
-    doc.moveTo(30, y - 5)
-      .lineTo(800, y - 5)
-      .stroke();
-
-    // ==================================
-    // DATA
-    // ==================================
-
-    doc.font('Helvetica');
-
-    data.forEach((sp, index) => {
-
-      if (y > 540) {
-
-        doc.addPage();
-
-        y = 50;
-
-      }
-
-      doc.text(index + 1, 30, y);
-
-      doc.text(
-        sp.kode_sparepart || '-',
-        60,
-        y
-      );
-
-      doc.text(
-        (sp.nama || '').substring(0, 35),
-        120,
-        y,
-        {
-          width: 180
-        }
-      );
-
-      doc.text(
-        sp.kategori || '-',
-        320,
-        y,
-        {
-          width: 90
-        }
-      );
-
-      // doc.text(
-      //   Number(
-      //     sp.harga_modal || 0
-      //   ).toLocaleString('id-ID'),
-      //   420,
-      //   y
-      // );
-
-      // doc.text(
-      //   Number(
-      //     sp.harga_jual || 0
-      //   ).toLocaleString('id-ID'),
-      //   520,
-      //   y
-      // );
-
-      doc.text(
-        sp.stok || 0,
-        500,
-        y
-      );
-
-      doc.text(
-        sp.posisi || '-',
-        560,
-        y
-      );
-
-      y += 22;
-
-      doc.moveTo(30, y - 4)
-        .lineTo(800, y - 4)
-        .strokeColor('#dddddd')
-        .stroke();
-
-    });
-
-    // ==================================
-    // TOTAL
-    // ==================================
-
-    y += 15;
-
-    const totalModal = data.reduce(
-      (a, b) =>
-        a +
-        (
-          Number(b.harga_modal || 0) *
-          Number(b.stok || 0)
-        ),
-      0
-    );
-
-    const totalJual = data.reduce(
-      (a, b) =>
-        a +
-        (
-          Number(b.harga_jual || 0) *
-          Number(b.stok || 0)
-        ),
-      0
-    );
-
-    doc.moveDown();
-
-    // doc
-    //   .font('Helvetica-Bold')
-    //   .fontSize(11);
-
-    // doc.text(
-    //   `Total Nilai Modal : Rp ${totalModal.toLocaleString('id-ID')}`
-    // );
-
-    // doc.text(
-    //   `Total Nilai Jual : Rp ${totalJual.toLocaleString('id-ID')}`
-    // );
-
-    doc.end();
-
-  } catch (err) {
-
-    console.error(err);
-
-    res.status(500).send(
-      'Gagal export PDF sparepart'
-    );
-
-  }
-
-});
 
 // =========================================
 // MASTER SPAREPART
@@ -8696,68 +8922,304 @@ app.get('/sparepart/:id', async (req, res) => {
 
 });
 
+app.post('/sparepart/delete/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await q(
+      'DELETE FROM sparepart WHERE id = ?',
+      [id]
+    );
+
+    res.redirect('/sparepart');
+
+  } catch (err) {
+    console.error('Gagal hapus sparepart:', err);
+    res.status(500).send('Gagal menghapus data sparepart');
+  }
+});
+
+// ======================================================
+// EXPORT PDF SPAREPART
+// ======================================================
+
+app.get('/export/sparepart/pdf', async (req, res) => {
+
+  try {
+
+    const data = await q(`
+      SELECT *
+      FROM sparepart
+      ORDER BY
+      CAST(
+        REPLACE(
+          UPPER(kode_sparepart),
+          'SP',
+          ''
+        ) AS UNSIGNED
+      ) ASC
+    `);
+
+    const doc = new PDFDocument({
+      margin: 30,
+      size: 'A4',
+      layout: 'landscape'
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/pdf'
+    );
+
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename=sparepart.pdf'
+    );
+
+    doc.pipe(res);
+
+    // ==================================
+    // HEADER
+    // ==================================
+
+    doc
+      .fontSize(18)
+      .text(
+        'DATA SPAREPART & AKSESORIS DRCOM',
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown(0.5);
+
+    doc
+      .fontSize(10)
+      .text(
+        `Dicetak: ${new Date().toLocaleString('id-ID')}`,
+        {
+          align: 'center'
+        }
+      );
+
+    doc.moveDown();
+
+    // ==================================
+    // KOLOM
+    // ==================================
+
+    let y = 130;
+
+    doc
+      .fontSize(9)
+      .font('Helvetica-Bold');
+
+    doc.text('No', 30, y);
+    doc.text('Kode', 60, y);
+    doc.text('Nama', 120, y);
+    doc.text('Kategori', 320, y);
+    // doc.text('Modal', 420, y);
+    // doc.text('Jual', 520, y);
+    doc.text('Stok', 500, y);
+    doc.text('Posisi', 560, y);
+
+    y += 20;
+
+    doc.moveTo(30, y - 5)
+      .lineTo(800, y - 5)
+      .stroke();
+
+    // ==================================
+    // DATA
+    // ==================================
+
+    doc.font('Helvetica');
+
+    data.forEach((sp, index) => {
+
+      if (y > 540) {
+
+        doc.addPage();
+
+        y = 50;
+
+      }
+
+      doc.text(index + 1, 30, y);
+
+      doc.text(
+        sp.kode_sparepart || '-',
+        60,
+        y
+      );
+
+      doc.text(
+        (sp.nama || '').substring(0, 35),
+        120,
+        y,
+        {
+          width: 180
+        }
+      );
+
+      doc.text(
+        sp.kategori || '-',
+        320,
+        y,
+        {
+          width: 90
+        }
+      );
+
+      // doc.text(
+      //   Number(
+      //     sp.harga_modal || 0
+      //   ).toLocaleString('id-ID'),
+      //   420,
+      //   y
+      // );
+
+      // doc.text(
+      //   Number(
+      //     sp.harga_jual || 0
+      //   ).toLocaleString('id-ID'),
+      //   520,
+      //   y
+      // );
+
+      doc.text(
+        sp.stok || 0,
+        500,
+        y
+      );
+
+      doc.text(
+        sp.posisi || '-',
+        560,
+        y
+      );
+
+      y += 22;
+
+      doc.moveTo(30, y - 4)
+        .lineTo(800, y - 4)
+        .strokeColor('#dddddd')
+        .stroke();
+
+    });
+
+    // ==================================
+    // TOTAL
+    // ==================================
+
+    y += 15;
+
+    const totalModal = data.reduce(
+      (a, b) =>
+        a +
+        (
+          Number(b.harga_modal || 0) *
+          Number(b.stok || 0)
+        ),
+      0
+    );
+
+    const totalJual = data.reduce(
+      (a, b) =>
+        a +
+        (
+          Number(b.harga_jual || 0) *
+          Number(b.stok || 0)
+        ),
+      0
+    );
+
+    doc.moveDown();
+
+    // doc
+    //   .font('Helvetica-Bold')
+    //   .fontSize(11);
+
+    // doc.text(
+    //   `Total Nilai Modal : Rp ${totalModal.toLocaleString('id-ID')}`
+    // );
+
+    // doc.text(
+    //   `Total Nilai Jual : Rp ${totalJual.toLocaleString('id-ID')}`
+    // );
+
+    doc.end();
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).send(
+      'Gagal export PDF sparepart'
+    );
+
+  }
+
+});
+
 // ==========================================
-// CLAIM GARANSI
+// CLAIM GARANSI - PAGINATION 10 DATA
 // ==========================================
 app.get('/claim-garansi', async (req, res) => {
-
     try {
+        const limit = 10;
+        let page = parseInt(req.query.page, 10) || 1;
+        if (page < 1) page = 1;
 
-        const claimList = await q(`
-            SELECT
-                cg.*,
-                p.nama AS nama_produk,
-                p.kode_produk
-            FROM claim_garansi cg
-            LEFT JOIN produk p
-                ON p.id = cg.produk_id
-            ORDER BY cg.created_at DESC
+        // Hitung seluruh data claim
+        const countResult = await q(`
+            SELECT COUNT(*) AS total
+            FROM claim_garansi
         `);
 
+        const totalData = Number(countResult[0].total) || 0;
+        const totalPages = Math.ceil(totalData / limit);
+        if (totalPages > 0 && page > totalPages) page = totalPages;
+
+        const offset = (page - 1) * limit;
+
+        // Ambil hanya 10 data sesuai halaman
+        const claimList = await q(`
+            SELECT cg.*, p.nama AS nama_produk, p.kode_produk
+            FROM claim_garansi cg
+            LEFT JOIN produk p ON p.id = cg.produk_id
+            ORDER BY cg.created_at DESC
+            LIMIT ${limit} OFFSET ${offset}
+        `);
+
+        // Data produk untuk form input tetap ditampilkan seluruhnya
         const produk = await q(`
-            SELECT
-                p.id,
-                p.kode_produk,
-                p.nama,
+            SELECT p.id, p.kode_produk, p.nama,
                 COALESCE(jkt.jumlah,0) AS stok_jakarta,
                 COALESCE(smg.jumlah,0) AS stok_semarang
             FROM produk p
-
             LEFT JOIN stock_cabang jkt
-                ON jkt.produk_id = p.id
-                AND jkt.cabang_id = 1
-
+                ON jkt.produk_id = p.id AND jkt.cabang_id = 1
             LEFT JOIN stock_cabang smg
-                ON smg.produk_id = p.id
-                AND smg.cabang_id = 2
-
-            WHERE
-                COALESCE(jkt.jumlah,0) > 0
-                OR COALESCE(smg.jumlah,0) > 0
-
-            ORDER BY
-                CAST(
-                    REPLACE(
-                        UPPER(p.kode_produk),
-                        'P',
-                        ''
-                    ) AS UNSIGNED
-                ) ASC
+                ON smg.produk_id = p.id AND smg.cabang_id = 2
+            WHERE COALESCE(jkt.jumlah,0) > 0
+               OR COALESCE(smg.jumlah,0) > 0
+            ORDER BY CAST(REPLACE(UPPER(p.kode_produk),'P','') AS UNSIGNED) ASC
         `);
 
         res.render('claim_garansi', {
             claimList,
             produk,
-            path: '/claim-garansi'
+            path: '/claim-garansi',
+            currentPage: page,
+            totalPages,
+            totalData
         });
 
-    } catch(err){
-
+    } catch (err) {
         console.log(err);
         res.status(500).send(err.message);
-
     }
-
 });
 
 app.post('/claim-garansi', upload.array('gambar', 10), async (req, res) => {
@@ -8980,6 +9442,716 @@ app.post('/claim-garansi/delete/:id',async(req,res)=>{
 
     }
 
+});
+
+// ==========================================
+// EXPORT PDF CLAIM GARANSI
+// FILTER HARIAN / MINGGUAN / BULANAN
+// 10 DATA SETIAP HALAMAN
+// ==========================================
+app.get('/export/claim-garansi/pdf', async (req, res) => {
+    try {
+        const periode = req.query.periode || 'harian';
+        const tanggal = req.query.tanggal || '';
+        const bulan = req.query.bulan || '';
+
+        let startDate;
+        let endDate;
+        let periodeText = '';
+
+        // Validasi dan hitung rentang tanggal
+        if (periode === 'harian') {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
+                return res.status(400).send('Tanggal tidak valid.');
+            }
+
+            const d = new Date(tanggal + 'T00:00:00Z');
+
+            if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== tanggal) {
+                return res.status(400).send('Tanggal tidak valid.');
+            }
+
+            startDate = tanggal;
+            d.setUTCDate(d.getUTCDate() + 1);
+            endDate = d.toISOString().slice(0, 10);
+
+            periodeText = `Tanggal ${tanggal}`;
+        }
+
+        else if (periode === 'mingguan') {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) {
+                return res.status(400).send('Tanggal minggu tidak valid.');
+            }
+
+            const d = new Date(tanggal + 'T00:00:00Z');
+
+            if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== tanggal) {
+                return res.status(400).send('Tanggal minggu tidak valid.');
+            }
+
+            // Tentukan hari Senin pada minggu yang dipilih
+            const day = d.getUTCDay();
+            const difference = day === 0 ? -6 : 1 - day;
+
+            d.setUTCDate(d.getUTCDate() + difference);
+
+            startDate = d.toISOString().slice(0, 10);
+
+            // Batas akhir adalah Senin minggu berikutnya
+            d.setUTCDate(d.getUTCDate() + 7);
+            endDate = d.toISOString().slice(0, 10);
+
+            const lastDay = new Date(d);
+            lastDay.setUTCDate(lastDay.getUTCDate() - 1);
+
+            periodeText =
+                `Minggu ${startDate} sampai ${lastDay.toISOString().slice(0, 10)}`;
+        }
+
+        else if (periode === 'bulanan') {
+            if (!/^\d{4}-\d{2}$/.test(bulan)) {
+                return res.status(400).send('Bulan tidak valid.');
+            }
+
+            const [year, month] = bulan.split('-').map(Number);
+
+            if (month < 1 || month > 12) {
+                return res.status(400).send('Bulan tidak valid.');
+            }
+
+            startDate = `${bulan}-01`;
+
+            const nextMonth = new Date(Date.UTC(year, month, 1));
+            endDate = nextMonth.toISOString().slice(0, 10);
+
+            periodeText = `Bulan ${bulan}`;
+        }
+
+        else {
+            return res.status(400).send('Pilihan periode tidak tersedia.');
+        }
+
+        // Ambil data sesuai periode
+        const claimList = await q(`
+            SELECT
+                cg.*,
+                p.nama AS nama_produk,
+                p.kode_produk
+            FROM claim_garansi cg
+            LEFT JOIN produk p ON p.id = cg.produk_id
+            WHERE cg.created_at >= '${startDate} 00:00:00'
+              AND cg.created_at < '${endDate} 00:00:00'
+            ORDER BY cg.created_at DESC
+        `);
+
+        const doc = new PDFDocument({
+            size: 'A4',
+            layout: 'landscape',
+            margins: {
+                top: 35,
+                bottom: 35,
+                left: 30,
+                right: 30
+            }
+        });
+
+        const namaFile = `claim-garansi-${periode}-${startDate}.pdf`;
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${namaFile}"`
+        );
+
+        doc.pipe(res);
+
+        const left = 30;
+        const tableWidth = doc.page.width - 60;
+        const rowHeight = 38;
+        const rowsPerPage = 10;
+
+        const columns = [
+            { title: 'No', width: 35 },
+            { title: 'Kode Produk', width: 90 },
+            { title: 'Nama Produk', width: 145 },
+            { title: 'Customer', width: 115 },
+            { title: 'Keluhan', width: 180 },
+            { title: 'Status', width: 85 },
+            { title: 'Tanggal', width: 110 }
+        ];
+
+        // Sesuaikan lebar kolom agar memenuhi tabel
+        const totalWidth = columns.reduce((sum, col) => sum + col.width, 0);
+        columns[columns.length - 1].width += tableWidth - totalWidth;
+
+        function drawHeader(pageNumber) {
+            doc.font('Helvetica-Bold')
+                .fontSize(18)
+                .fillColor('#142d4e')
+                .text('DR.COM STORE', left, 30);
+
+            doc.font('Helvetica-Bold')
+                .fontSize(14)
+                .fillColor('#222')
+                .text('LAPORAN CLAIM GARANSI', left, 55);
+
+            doc.font('Helvetica')
+                .fontSize(9)
+                .fillColor('#555')
+                .text(`Periode: ${periodeText}`, left, 77);
+
+            doc.text(
+                `Tanggal cetak: ${new Date().toLocaleString('id-ID')}`,
+                left,
+                90
+            );
+
+            doc.text(
+                `Total data: ${claimList.length} | Halaman: ${pageNumber}`,
+                left + 400,
+                90
+            );
+
+            let x = left;
+            const headerY = 112;
+
+            columns.forEach(col => {
+                doc.rect(x, headerY, col.width, 27)
+                    .fillAndStroke('#142d4e', '#142d4e');
+
+                doc.font('Helvetica-Bold')
+                    .fontSize(8)
+                    .fillColor('#ffffff')
+                    .text(
+                        col.title,
+                        x + 4,
+                        headerY + 9,
+                        {
+                            width: col.width - 8,
+                            align: 'center'
+                        }
+                    );
+
+                x += col.width;
+            });
+        }
+
+        function drawRow(item, number, y) {
+            const values = [
+                number,
+                item.kode_produk || '-',
+                item.nama_produk || '-',
+                item.customer || '-',
+                item.keluhan || '-',
+                item.status || '-',
+                item.created_at
+                    ? new Date(item.created_at).toLocaleString('id-ID')
+                    : '-'
+            ];
+
+            let x = left;
+
+            columns.forEach((col, index) => {
+                doc.rect(x, y, col.width, rowHeight)
+                    .fillAndStroke('#ffffff', '#cccccc');
+
+                doc.font('Helvetica')
+                    .fontSize(8)
+                    .fillColor('#222')
+                    .text(
+                        String(values[index]),
+                        x + 4,
+                        y + 6,
+                        {
+                            width: col.width - 8,
+                            height: rowHeight - 10,
+                            ellipsis: true
+                        }
+                    );
+
+                x += col.width;
+            });
+        }
+
+        if (claimList.length === 0) {
+            drawHeader(1);
+
+            doc.font('Helvetica')
+                .fontSize(11)
+                .fillColor('#555')
+                .text('Tidak ada data Claim Garansi pada periode ini.', left, 155);
+        } else {
+            for (
+                let start = 0, pageNumber = 1;
+                start < claimList.length;
+                start += rowsPerPage, pageNumber++
+            ) {
+                if (pageNumber > 1) {
+                    doc.addPage();
+                }
+
+                drawHeader(pageNumber);
+
+                const pageData = claimList.slice(
+                    start,
+                    start + rowsPerPage
+                );
+
+                pageData.forEach((item, index) => {
+                    const y = 139 + (index * rowHeight);
+                    drawRow(item, start + index + 1, y);
+                });
+            }
+        }
+
+        doc.end();
+
+    } catch (err) {
+        console.error('Export PDF Claim Garansi:', err);
+
+        if (!res.headersSent) {
+            res.status(500).send('Gagal membuat PDF: ' + err.message);
+        }
+    }
+});
+
+// ================= SERVICE USER =================
+// Halaman tambah service user
+app.get('/service-user', (req, res) => {
+    res.render('service_user', {
+        path: '/service-user'
+    });
+});
+
+// Simpan service user
+app.post('/service-user', async (req, res) => {
+    try {
+        const {
+            nama_customer,
+            no_hp,
+            nama_barang,
+            keluhan,
+            tindakan,
+            biaya,
+            teknisi,
+            status,
+            tanggal,
+            keterangan
+        } = req.body;
+
+        if (!nama_customer || !nama_barang || !keluhan) {
+            return res.status(400).send('Nama customer, nama barang, dan keluhan wajib diisi.');
+        }
+
+        const statusValid = ['PENDING', 'PROSES', 'SELESAI', 'CANCEL'];
+
+        const statusAkhir = statusValid.includes(status)
+            ? status
+            : 'PENDING';
+
+        await q(`
+            INSERT INTO service_user
+            (
+                nama_customer,
+                no_hp,
+                nama_barang,
+                keluhan,
+                tindakan,
+                biaya,
+                teknisi,
+                status,
+                tanggal,
+                keterangan
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            nama_customer,
+            no_hp || null,
+            nama_barang,
+            keluhan,
+            tindakan || null,
+            Number(biaya) || 0,
+            teknisi || null,
+            statusAkhir,
+            tanggal || new Date(),
+            keterangan || null
+        ]);
+
+        res.redirect('/');
+
+    } catch (err) {
+        console.error('Gagal menyimpan service user:', err);
+        res.status(500).send('Gagal menyimpan data service user.');
+    }
+});
+
+
+// Halaman edit service user
+app.get('/service-user/edit/:id', async (req, res) => {
+    try {
+        const rows = await q(
+            'SELECT * FROM service_user WHERE id = ?',
+            [req.params.id]
+        );
+
+        if (!rows.length) {
+            return res.status(404).send('Data service tidak ditemukan.');
+        }
+
+        res.render('service_user_edit', {
+            service: rows[0],
+            path: '/service-user'
+        });
+
+    } catch (err) {
+        console.error('Gagal membuka edit service:', err);
+        res.status(500).send('Terjadi kesalahan.');
+    }
+});
+
+
+// Update service user
+app.post('/service-user/edit/:id', async (req, res) => {
+    try {
+        const {
+            nama_customer,
+            no_hp,
+            nama_barang,
+            keluhan,
+            tindakan,
+            biaya,
+            teknisi,
+            status,
+            tanggal,
+            keterangan
+        } = req.body;
+
+        const statusValid = ['PENDING', 'PROSES', 'SELESAI', 'CANCEL'];
+
+        if (!statusValid.includes(status)) {
+            return res.status(400).send('Status service tidak valid.');
+        }
+
+        await q(`
+            UPDATE service_user SET
+                nama_customer = ?,
+                no_hp = ?,
+                nama_barang = ?,
+                keluhan = ?,
+                tindakan = ?,
+                biaya = ?,
+                teknisi = ?,
+                status = ?,
+                tanggal = ?,
+                keterangan = ?
+            WHERE id = ?
+        `, [
+            nama_customer,
+            no_hp || null,
+            nama_barang,
+            keluhan,
+            tindakan || null,
+            Number(biaya) || 0,
+            teknisi || null,
+            status,
+            tanggal || new Date(),
+            keterangan || null,
+            req.params.id
+        ]);
+
+        res.redirect('/');
+
+    } catch (err) {
+        console.error('Gagal update service user:', err);
+        res.status(500).send('Gagal memperbarui data service user.');
+    }
+});
+
+
+// Hapus service user
+app.post('/service-user/delete/:id', async (req, res) => {
+    try {
+        await q(
+            'DELETE FROM service_user WHERE id = ?',
+            [req.params.id]
+        );
+
+        res.redirect('/');
+
+    } catch (err) {
+        console.error('Gagal menghapus service user:', err);
+        res.status(500).send('Gagal menghapus data service user.');
+    }
+});
+
+
+// ==========================================
+// EXPORT PDF RIWAYAT SERVICE USER
+// ==========================================
+app.get('/export/service-user/pdf', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+
+    // Validasi format tanggal
+    const validDate = (value) => {
+      if (typeof value !== 'string') return false;
+
+      // Pastikan format YYYY-MM-DD
+      const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+      if (!match) return false;
+
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+
+      // Validasi tanggal tanpa konversi timezone
+      const date = new Date(Date.UTC(year, month - 1, day));
+
+      return (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day
+      );
+    };
+
+    if (!validDate(start) || !validDate(end)) {
+      return res.status(400).send('Tanggal mulai dan akhir tidak valid.');
+    }
+
+    if (start > end) {
+      return res.status(400).send('Tanggal mulai tidak boleh melebihi tanggal akhir.');
+    }
+
+    // Ambil seluruh data sesuai rentang tanggal
+    const data = await q(`
+      SELECT *
+      FROM service_user
+      WHERE tanggal >= ?
+        AND tanggal < DATE_ADD(?, INTERVAL 1 DAY)
+      ORDER BY tanggal ASC, id ASC
+    `, [start, end]);
+
+    const formatTanggal = (tanggal) => {
+      return new Date(tanggal).toLocaleString('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+
+    const rupiah = (angka) => {
+      return 'Rp ' + Number(angka || 0).toLocaleString('id-ID');
+    };
+
+    const doc = new PDFDocument({
+      size: 'A4',
+      layout: 'landscape',
+      margins: {
+        top: 35,
+        bottom: 35,
+        left: 30,
+        right: 30
+      },
+      bufferPages: true
+    });
+
+    const filename = `Laporan-Service-User-${start}-${end}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${filename}"`
+    );
+
+    doc.pipe(res);
+
+    const pageWidth = doc.page.width;
+    const margin = 30;
+
+    // Judul laporan
+    doc.font('Helvetica-Bold')
+      .fontSize(18)
+      .fillColor('#142b4a')
+      .text('DR.COM STORE', margin, 30);
+
+    doc.font('Helvetica-Bold')
+      .fontSize(13)
+      .fillColor('#222')
+      .text('LAPORAN SERVICE USER', margin, 55);
+
+    doc.font('Helvetica')
+      .fontSize(9)
+      .fillColor('#555')
+      .text(`Periode: ${start} sampai ${end}`, margin, 76);
+
+    doc.text(`Dicetak: ${formatTanggal(new Date())}`, margin, 90);
+
+    // Ringkasan
+    const totalBiaya = data.reduce(
+      (total, item) => total + Number(item.biaya || 0),
+      0
+    );
+
+    doc.font('Helvetica-Bold')
+      .fontSize(10)
+      .fillColor('#222')
+      .text(`Jumlah Service: ${data.length}`, 600, 55);
+
+    doc.text(`Total Biaya: ${rupiah(totalBiaya)}`, 600, 70);
+
+    // Lebar kolom tabel
+    const columns = [
+      { label: 'No', width: 30, field: 'no' },
+      { label: 'Customer', width: 85, field: 'nama_customer' },
+      { label: 'No HP', width: 75, field: 'no_hp' },
+      { label: 'Barang', width: 120, field: 'nama_barang' },
+      { label: 'Keluhan', width: 90, field: 'keluhan' },
+      { label: 'Tindakan', width: 90, field: 'tindakan' },
+      { label: 'Teknisi', width: 65, field: 'teknisi' },
+      { label: 'Biaya', width: 75, field: 'biaya' },
+      { label: 'Status', width: 65, field: 'status' },
+      { label: 'Tanggal', width: 95, field: 'tanggal' }
+    ];
+
+    const tableWidth = columns.reduce(
+      (total, col) => total + col.width, 0
+    );
+
+    let y = 120;
+    const headerHeight = 25;
+
+    function drawHeader() {
+      let x = margin;
+
+      doc.rect(margin, y, tableWidth, headerHeight)
+        .fill('#142b4a');
+
+      columns.forEach(col => {
+        doc.font('Helvetica-Bold')
+          .fontSize(8)
+          .fillColor('#ffffff')
+          .text(col.label, x + 3, y + 8, {
+            width: col.width - 6,
+            align: 'center'
+          });
+
+        x += col.width;
+      });
+
+      y += headerHeight;
+    }
+
+    drawHeader();
+
+    if (data.length === 0) {
+      doc.font('Helvetica')
+        .fontSize(11)
+        .fillColor('#666')
+        .text(
+          'Tidak ada data Service User pada rentang tanggal ini.',
+          margin,
+          y + 20
+        );
+    }
+
+    data.forEach((item, index) => {
+      const values = [
+        index + 1,
+        item.nama_customer || '-',
+        item.no_hp || '-',
+        item.nama_barang || '-',
+        item.keluhan || '-',
+        item.tindakan || '-',
+        item.teknisi || '-',
+        rupiah(item.biaya),
+        item.status || '-',
+        formatTanggal(item.tanggal)
+      ];
+
+      // Hitung tinggi baris berdasarkan teks terpanjang
+      let rowHeight = 24;
+
+      values.forEach((value, i) => {
+        const height = doc.heightOfString(String(value), {
+          width: columns[i].width - 8,
+          font: 'Helvetica',
+          fontSize: 7,
+          lineGap: 1
+        });
+
+        rowHeight = Math.max(rowHeight, height + 10);
+      });
+
+      // Jika halaman tidak cukup, buat halaman baru
+      if (y + rowHeight > doc.page.height - 45) {
+        doc.addPage();
+        y = 35;
+        drawHeader();
+      }
+
+      // Warna baris bergantian
+      doc.rect(margin, y, tableWidth, rowHeight)
+        .fill(index % 2 === 0 ? '#f2f5f9' : '#ffffff');
+
+      let x = margin;
+
+      values.forEach((value, i) => {
+        doc.font('Helvetica')
+          .fontSize(7)
+          .fillColor('#222')
+          .text(String(value), x + 4, y + 5, {
+            width: columns[i].width - 8,
+            height: rowHeight - 8,
+            align: i === 0 || i === 7 || i === 8 ? 'center' : 'left'
+          });
+
+        x += columns[i].width;
+      });
+
+      // Garis pembatas
+      doc.rect(margin, y, tableWidth, rowHeight)
+        .lineWidth(0.4)
+        .strokeColor('#d5dce5')
+        .stroke();
+
+      y += rowHeight;
+    });
+
+    // Nomor halaman
+    const pages = doc.bufferedPageRange();
+
+    for (let i = 0; i < pages.count; i++) {
+      doc.switchToPage(pages.start + i);
+
+      doc.font('Helvetica')
+        .fontSize(8)
+        .fillColor('#777')
+        .text(
+          `DR.COM Store | Halaman ${i + 1} dari ${pages.count}`,
+          margin,
+          doc.page.height - 25,
+          {
+            width: pageWidth - margin * 2,
+            align: 'right'
+          }
+        );
+    }
+
+    doc.end();
+
+  } catch (error) {
+    console.error('Export Service User PDF Error:', error);
+
+    if (!res.headersSent) {
+      res.status(500).send('Gagal membuat PDF Service User.');
+    } else {
+      res.destroy(error);
+    }
+  }
 });
 
 
