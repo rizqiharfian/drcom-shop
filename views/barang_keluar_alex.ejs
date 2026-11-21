@@ -7,9 +7,8 @@
   <title>Barang Keluar Alex</title>
 
   <link rel="icon" href="/drcom.png">
-
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
 
   <style>
@@ -40,6 +39,52 @@
 
     .badge-cancel {
       background: #6c757d;
+    }
+
+    /* Pengaturan lebar tabel Barang Keluar Alex */
+    .tabel-alex {
+        width: 100%;
+        table-layout: fixed;
+    }
+
+    /* Posisi teks dan jarak antar kolom */
+    .tabel-alex th,
+    .tabel-alex td {
+        vertical-align: middle;
+        padding: 12px;
+    }
+
+    /* Kolom Produk */
+    .tabel-alex th:nth-child(3),
+    .tabel-alex td:nth-child(3) {
+        overflow-wrap: break-word;
+        word-break: normal;
+    }
+
+    /* Kolom Harga */
+    .tabel-alex th:nth-child(5),
+    .tabel-alex td:nth-child(5) {
+        white-space: nowrap;
+    }
+
+    /* Kolom Keterangan */
+    .tabel-alex th:nth-child(6),
+    .tabel-alex td:nth-child(6) {
+        overflow-wrap: break-word;
+    }
+
+    /* Kolom Aksi */
+    .tabel-alex th:nth-child(9),
+    .tabel-alex td:nth-child(9) {
+        text-align: center;
+        white-space: normal;
+    }
+
+    /* Tampilan layar kecil */
+    @media (max-width: 768px) {
+        .tabel-alex {
+            min-width: 1200px;
+        }
     }
   </style>
 </head>
@@ -170,10 +215,10 @@
             <div class="col-md-3">
 
               <label class="form-label">
-                Service
+                Harga
               </label>
 
-              <input type="text" name="service" class="form-control">
+              <input type="text" name="harga" class="form-control">
 
             </div>
 
@@ -217,6 +262,35 @@
       </div>
 
       <div class="card-body table-responsive">
+        <!-- SEARCH BAR BARANG KELUAR ALEX -->
+        <div class="row g-2 mb-3">
+            <div class="col-md-8">
+                <input
+                    type="search"
+                    id="searchBarangAlex"
+                    class="form-control"
+                    placeholder="Cari tujuan, produk, orderan, service, keterangan, status, tanggal..."
+                >
+            </div>
+
+            <div class="col-md-2">
+                <button
+                    type="button"
+                    class="btn btn-primary w-100"
+                    id="btnSearchAlex">
+                    <i class="bi bi-search"></i> Cari
+                </button>
+            </div>
+
+            <div class="col-md-2">
+                <button
+                    type="button"
+                    class="btn btn-secondary w-100"
+                    id="btnResetAlex">
+                    Reset
+                </button>
+            </div>
+        </div>
         <div class="d-flex justify-content-end mb-3">
           <div class="btn-group">
             <button class="btn btn-danger dropdown-toggle" data-bs-toggle="dropdown">Export PDF</button>
@@ -241,25 +315,33 @@
             </ul>
           </div>
         </div>
-        <table class="table table-bordered table-hover align-middle">
+        <div class="table-responsive">
+        <table id="tabelBarangAlex" class="table table-bordered table-hover align-middle tabel-alex">
+
+            <colgroup>
+                <col style="width: 5%;">
+                <col style="width: 10%;">
+                <col style="width: 22%;">
+                <col style="width: 9%;">
+                <col style="width: 12%;">
+                <col style="width: 14%;">
+                <col style="width: 8%;">
+                <col style="width: 9%;">
+                <col style="width: 14%;">
+            </colgroup>
 
           <thead class="table-dark text-center">
-
             <tr>
               <th>No</th>
-              <th width="10">Tujuan</th>
+              <th>Tujuan</th>
               <th>Produk</th>
               <th>Jumlah</th>
-              <th>Orderan</th>
-              <th>Service</th>
+              <th>Harga</th>
               <th>Keterangan</th>
               <th>Status</th>
               <th>Tanggal</th>
-              <th width="280">
-                Aksi
-              </th>
+              <th>Aksi</th>
             </tr>
-
           </thead>
 
           <tbody>
@@ -280,11 +362,11 @@
                 <td>
                   <%= d.jumlah %>
                 </td>
-                <td>
+                <!-- <td>
                   <%= d.orderan || '-' %>
-                </td>
+                </td> -->
                 <td>
-                  <%= d.service || '-' %>
+                    Rp <%= Number(d.harga || 0).toLocaleString('id-ID') %>
                 </td>
                 <td>
                   <%= d.keterangan || '-' %>
@@ -329,6 +411,12 @@
 
                 <td class="text-center">
 
+                  <a
+                      href="/barang-keluar-alex/<%= d.id %>/edit"
+                      class="btn btn-warning btn-sm mb-1">
+                      <i class="bi bi-pencil-square"></i> Edit
+                  </a>
+
                   <% if(d.status=='pending' ){ %>
 
                     <form action="/barang-keluar-alex/<%= d.id %>/masuk-stok" method="POST" style="display:inline;">
@@ -366,16 +454,16 @@
               <% }) %>
 
           </tbody>
-          <div class="d-flex justify-content-between align-items-center mt-3">
-            <small id="infoPagination" class="text-muted"></small>
-
-            <nav>
-              <ul id="paginationAlex" class="pagination pagination-sm mb-0"></ul>
-            </nav>
-          </div>
-
+          
         </table>
+        <div class="d-flex justify-content-between align-items-center mt-3">
+          <small id="infoPagination" class="text-muted"></small>
 
+          <nav>
+            <ul id="paginationAlex" class="pagination pagination-sm mb-0"></ul>
+          </nav>
+        </div>
+        
       </div>
 
     </div>
@@ -496,92 +584,134 @@
 
     document.addEventListener('DOMContentLoaded', function () {
 
-      const table = document.querySelector('.table-bordered');
-      const tbody = table.querySelector('tbody');
-      const pagination = document.getElementById('paginationAlex');
-      const info = document.getElementById('infoPagination');
+        const table = document.getElementById('tabelBarangAlex');
+        const searchInput = document.getElementById('searchBarangAlex');
+        const searchButton = document.getElementById('btnSearchAlex');
+        const resetButton = document.getElementById('btnResetAlex');
+        const pagination = document.getElementById('paginationAlex');
+        const info = document.getElementById('infoPagination');
 
-      const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (!table || !searchInput || !searchButton ||
+            !resetButton || !pagination || !info) {
+            console.error('Elemen pencarian atau pagination tidak ditemukan.');
+            return;
+        }
 
-      const perPage = 10;
-      let currentPage = 1;
+        const tbody = table.querySelector('tbody');
+        const allRows = Array.from(tbody.querySelectorAll('tr'));
 
-      const totalData = rows.length;
-      const totalPages = Math.ceil(totalData / perPage);
+        const perPage = 10;
+        let currentPage = 1;
+        let filteredRows = [...allRows];
 
-      function renderPagination() {
+        function filterData() {
+            const keyword = searchInput.value.trim().toLowerCase();
 
-        const start = (currentPage - 1) * perPage;
-        const end = start + perPage;
+            filteredRows = allRows.filter(row => {
+                // Kolom 0 = No, kolom 9 = Aksi.
+                // Pencarian dilakukan pada kolom Tujuan sampai Tanggal.
+                const searchableText = Array.from(row.cells)
+                    .slice(1, 9)
+                    .map(cell => cell.innerText)
+                    .join(' ')
+                    .toLowerCase();
 
-        // Tampilkan hanya 10 data sesuai halaman
-        rows.forEach((row, index) => {
-          row.style.display =
-            index >= start && index < end ? '' : 'none';
+                return searchableText.includes(keyword);
+            });
 
-          // Nomor urut mengikuti halaman
-          row.cells[0].textContent = index + 1;
+            currentPage = 1;
+            showPage();
+        }
+
+        function showPage() {
+            const totalData = filteredRows.length;
+            const totalPages = Math.ceil(totalData / perPage);
+            const safeTotalPages = Math.max(totalPages, 1);
+
+            if (currentPage > safeTotalPages) {
+                currentPage = safeTotalPages;
+            }
+
+            // Sembunyikan semua baris terlebih dahulu
+            allRows.forEach(row => {
+                row.style.display = 'none';
+            });
+
+            // Tampilkan data sesuai halaman
+            const start = (currentPage - 1) * perPage;
+            const end = start + perPage;
+            const pageRows = filteredRows.slice(start, end);
+
+            pageRows.forEach((row, index) => {
+                row.style.display = '';
+                row.cells[0].innerText = start + index + 1;
+            });
+
+            // Informasi jumlah data
+            if (totalData === 0) {
+                info.innerText = 'Tidak ada data yang ditemukan.';
+            } else {
+                info.innerText =
+                    `Menampilkan ${start + 1} - ${Math.min(end, totalData)} dari ${totalData} data`;
+            }
+
+            // Buat tombol pagination
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            function createButton(label, page, disabled, active = false) {
+                const li = document.createElement('li');
+                li.className = 'page-item';
+
+                if (disabled) li.classList.add('disabled');
+                if (active) li.classList.add('active');
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'page-link';
+                button.innerText = label;
+
+                button.addEventListener('click', function () {
+                    if (disabled) return;
+
+                    currentPage = page;
+                    showPage();
+                });
+
+                li.appendChild(button);
+                pagination.appendChild(li);
+            }
+
+            createButton('«', currentPage - 1, currentPage === 1);
+
+            for (let i = 1; i <= totalPages; i++) {
+                createButton(i, i, false, currentPage === i);
+            }
+
+            createButton('»', currentPage + 1, currentPage === totalPages);
+        }
+
+        // Tombol Cari
+        searchButton.addEventListener('click', filterData);
+
+        // Bisa tekan Enter untuk mencari
+        searchInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                filterData();
+            }
         });
 
-        // Informasi jumlah data
-        if (totalData === 0) {
-          info.textContent = 'Tidak ada data';
-        } else {
-          info.textContent =
-            `Menampilkan ${start + 1}–${Math.min(end, totalData)} dari ${totalData} data`;
-        }
+        // Tombol Reset
+        resetButton.addEventListener('click', function () {
+            searchInput.value = '';
+            filteredRows = [...allRows];
+            currentPage = 1;
+            showPage();
+        });
 
-        // Tombol pagination
-        pagination.innerHTML = '';
-
-        if (totalPages <= 1) return;
-
-        // Tombol sebelumnya
-        pagination.innerHTML += `
-            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                <button class="page-link" data-page="${currentPage - 1}">
-                    Sebelumnya
-                </button>
-            </li>
-        `;
-
-        // Nomor halaman
-        for (let i = 1; i <= totalPages; i++) {
-          pagination.innerHTML += `
-                <li class="page-item ${currentPage === i ? 'active' : ''}">
-                    <button class="page-link" data-page="${i}">
-                        ${i}
-                    </button>
-                </li>
-            `;
-        }
-
-        // Tombol berikutnya
-        pagination.innerHTML += `
-            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                <button class="page-link" data-page="${currentPage + 1}">
-                    Berikutnya
-                </button>
-            </li>
-        `;
-      }
-
-      // Klik tombol pagination
-      pagination.addEventListener('click', function (e) {
-
-        const button = e.target.closest('button[data-page]');
-
-        if (!button) return;
-
-        const page = Number(button.dataset.page);
-
-        if (page < 1 || page > totalPages) return;
-
-        currentPage = page;
-        renderPagination();
-      });
-
-      renderPagination();
+        // Tampilan awal
+        showPage();
 
     });
 

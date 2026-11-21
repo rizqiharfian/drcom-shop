@@ -227,6 +227,40 @@
 
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h4 class="mb-0">Riwayat Claim Garansi</h4>
+
+            <span class="text-muted">
+                Total: <strong><%= totalData %></strong> data
+            </span>
+        </div>
+
+        <!-- SEARCH CLAIM GARANSI -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <form action="/claim-garansi" method="GET"
+                    class="row g-2 align-items-center">
+
+                    <div class="col-md-9">
+                        <input
+                            type="text"
+                            name="search"
+                            class="form-control"
+                            placeholder="Cari kode produk, nama produk, customer, keluhan, atau status..."
+                            value="<%= search || '' %>">
+                    </div>
+
+                    <div class="col-md-3 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary flex-fill">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+
+                        <a href="/claim-garansi"
+                        class="btn btn-secondary flex-fill">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                        </a>
+                    </div>
+
+                </form>
+            </div>
         </div>
 
         <div class="card mb-3">
@@ -451,7 +485,7 @@
 
                         <li class="page-item <%= currentPage === 1 ? 'disabled' : '' %>">
                             <a class="page-link"
-                            href="/claim-garansi?page=<%= currentPage - 1 %>">
+                            href="/claim-garansi?page=<%= currentPage - 1 %>&search=<%= encodeURIComponent(search || '') %>">
                                 Sebelumnya
                             </a>
                         </li>
@@ -459,7 +493,7 @@
                         <% for (let i = 1; i <= totalPages; i++) { %>
                             <li class="page-item <%= currentPage === i ? 'active' : '' %>">
                                 <a class="page-link"
-                                href="/claim-garansi?page=<%= i %>">
+                                href="/claim-garansi?page=<%= i %>&search=<%= encodeURIComponent(search || '') %>">
                                     <%= i %>
                                 </a>
                             </li>
@@ -467,7 +501,7 @@
 
                         <li class="page-item <%= currentPage === totalPages ? 'disabled' : '' %>">
                             <a class="page-link"
-                            href="/claim-garansi?page=<%= currentPage + 1 %>">
+                            href="/claim-garansi?page=<%= currentPage + 1 %>&search=<%= encodeURIComponent(search || '') %>">
                                 Berikutnya
                             </a>
                         </li>

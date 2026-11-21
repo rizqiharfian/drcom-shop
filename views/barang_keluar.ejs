@@ -95,6 +95,7 @@
         <tr>
           <th>Produk</th>
           <th>Jumlah</th>
+          <th>Harga</th>
           <th>Keterangan</th>
           <th>Gambar</th>
           <th>Aksi</th>
@@ -114,6 +115,10 @@
 
           <td>
             <input type="number" name="jumlah[]" class="form-control jumlah" min="1" required>
+          </td>
+
+          <td>
+            <input type="number" name="harga[]" class="form-control harga" min="0" step="0.01" required>
           </td>
 
           <td>
@@ -166,6 +171,7 @@ $('#addRow').click(function () {
 
   // reset value
   clone.find('input').val('');
+  clone.find('.harga').val('0');
   clone.find('select').val('');
 
   // HAPUS select2 lama

@@ -224,13 +224,13 @@ app.get('/', async (req, res) => {
 
     // Riwayat barang keluar (ambil bk.tanggal AS created_at)
     const rowsBK = await q(`
-  SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS created_at,
-         bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan, bkd.status, p.nama
-  FROM barang_keluar bk
-  LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
-  LEFT JOIN produk p ON bkd.produk_id = p.id
-  ORDER BY bk.tanggal DESC, bk.id DESC
-`);
+      SELECT bk.id AS bk_id, bk.tujuan, bk.tanggal AS created_at,
+            bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.harga, bkd.keterangan, bkd.status, p.nama
+      FROM barang_keluar bk
+      LEFT JOIN barang_keluar_detail bkd ON bk.id = bkd.barang_keluar_id
+      LEFT JOIN produk p ON bkd.produk_id = p.id
+      ORDER BY bk.tanggal DESC, bk.id DESC
+    `);
     const groupedBK = {};
     rowsBK.forEach(r => {
       if (!r.bk_id) return;
@@ -240,6 +240,7 @@ app.get('/', async (req, res) => {
         produk_id: r.produk_id,
         nama: r.nama,
         jumlah: r.jumlah,
+        harga: r.harga ?? 0,
         keterangan: r.keterangan,
         status: (typeof r.status !== 'undefined' && r.status !== null) ? r.status : 2 // default pending
       });
@@ -5858,9 +5859,10 @@ app.post('/barang-masuk/:id/edit', upload.array('gambar'), async (req, res) => {
 
 });
 
+
 // ---------- UTILITY: parse items dari dua format (pakai di barang masuk & keluar) ----------
 function parseItemsFromBody(body) {
-  // prefer body.items JSON if ada
+  // Prefer body.items JSON jika tersedia
   if (body.items) {
     try {
       const parsed = JSON.parse(body.items);
@@ -5870,7 +5872,7 @@ function parseItemsFromBody(body) {
     }
   }
 
-  // fallback: produk[], jumlah[], keterangan[] (form inputs)
+  // Fallback: produk[], jumlah[], harga[], keterangan[]
   const produkArr = body['produk[]'] ?? body.produk ?? [];
   const jumlahArr = body['jumlah[]'] ?? body.jumlah ?? [];
   const hargaArr = body['harga[]'] ?? body.harga ?? [];
@@ -5878,15 +5880,27 @@ function parseItemsFromBody(body) {
 
   const pList = Array.isArray(produkArr) ? produkArr : (produkArr ? [produkArr] : []);
   const jList = Array.isArray(jumlahArr) ? jumlahArr : (jumlahArr ? [jumlahArr] : []);
+  const hList = Array.isArray(hargaArr) ? hargaArr : (hargaArr !== '' && hargaArr != null ? [hargaArr] : []);
   const kList = Array.isArray(ketArr) ? ketArr : (ketArr ? [ketArr] : []);
 
   const items = [];
+
   for (let i = 0; i < pList.length; i++) {
     const pid = pList[i];
     const qty = jList[i];
+    const harga = hList[i] ?? 0;
     const ket = kList[i] ?? null;
-    if (pid && qty) items.push({ produk_id: pid, jumlah: qty, keterangan: ket });
+
+    if (pid && qty) {
+      items.push({
+        produk_id: pid,
+        jumlah: qty,
+        harga: harga,
+        keterangan: ket
+      });
+    }
   }
+
   return items;
 }
 
@@ -6123,12 +6137,18 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
 
     if (!Array.isArray(data) || data.length === 0) return res.status(400).send('Tidak ada item untuk disimpan.');
 
-    // normalize & validate (tetap sama)
     data = data.map(it => ({
-      produk_id: parseInt(it.produk_id, 10),
-      jumlah: parseInt(it.jumlah, 10),
-      keterangan: it.keterangan ?? null
-    })).filter(it => Number.isInteger(it.produk_id) && Number.isInteger(it.jumlah) && it.jumlah > 0);
+        produk_id: parseInt(it.produk_id, 10),
+        jumlah: parseInt(it.jumlah, 10),
+        harga: Number(it.harga ?? 0),
+        keterangan: it.keterangan ?? null
+    })).filter(it =>
+        Number.isInteger(it.produk_id) &&
+        Number.isInteger(it.jumlah) &&
+        it.jumlah > 0 &&
+        Number.isFinite(it.harga) &&
+        it.harga >= 0
+    );
 
     if (data.length === 0) return res.status(400).send('Item tidak valid.');
 
@@ -6150,8 +6170,8 @@ app.post('/barang-keluar', upload.array('gambar'), async (req, res) => {
 
       // insert detail termasuk kolom gambar dan status = 2 (pending)
       await q(
-          'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?)',
-          [barangKeluarId, it.produk_id, it.jumlah, it.keterangan, gambarFilename, 2]
+          'INSERT INTO barang_keluar_detail (barang_keluar_id, produk_id, jumlah, harga, keterangan, gambar, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [barangKeluarId, it.produk_id, it.jumlah, it.harga, it.keterangan, gambarFilename, 2]
       );
 
       // update stock
@@ -6199,7 +6219,7 @@ app.post('/barang-keluar/status/:detailId', async (req, res) => {
 
         // Ambil detail barang
         const rows = await q(
-            `SELECT id, produk_id, jumlah, status
+            `SELECT id, produk_id, jumlah, harga, status
              FROM barang_keluar_detail
              WHERE id = ?
              FOR UPDATE`,
@@ -6389,7 +6409,7 @@ app.get('/barang-keluar/:id', async (req, res) => {
 
     // ambil items (join produk untuk nama)
     const rows = await q(
-      `SELECT bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.keterangan, bkd.gambar, p.nama
+      `SELECT bkd.id AS detail_id, bkd.produk_id, bkd.jumlah, bkd.harga, bkd.keterangan, bkd.gambar, p.nama
        FROM barang_keluar_detail bkd
        LEFT JOIN produk p ON bkd.produk_id = p.id
        WHERE bkd.barang_keluar_id = ?`, [id]
@@ -6433,6 +6453,7 @@ app.get('/barang-keluar/edit/:id', async (req, res) => {
                 bkd.id AS detail_id,
                 bkd.produk_id,
                 bkd.jumlah,
+                bkd.harga,
                 bkd.keterangan,
                 bkd.gambar,
                 COALESCE(bkd.status, 2) AS status,
@@ -6486,6 +6507,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
         const detailIds = toArray(req.body.detail_id);
         const produkIds = toArray(req.body.produk_id);
         const jumlahs = toArray(req.body.jumlah);
+        const hargas = toArray(req.body.harga);
         const ketArr = toArray(req.body.keterangan);
         const statusArr = toArray(req.body.status);
 
@@ -6496,6 +6518,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
         if (
             produkIds.length !== detailIds.length ||
             jumlahs.length !== detailIds.length ||
+            hargas.length !== detailIds.length ||
             ketArr.length !== detailIds.length ||
             statusArr.length !== detailIds.length
         ) {
@@ -6540,6 +6563,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
             const detailId = Number(detailIds[i]);
             const newProdukId = Number(produkIds[i]);
             const newJumlah = Number(jumlahs[i]);
+            const newHarga = Number(hargas[i]);
             const newKet = ketArr[i] ?? null;
             const newStatus = Number(statusArr[i]);
 
@@ -6551,6 +6575,8 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
                 newProdukId <= 0 ||
                 !Number.isInteger(newJumlah) ||
                 newJumlah <= 0 ||
+                !Number.isFinite(newHarga) ||
+                newHarga < 0 ||
                 ![0, 1, 2].includes(newStatus)
             ) {
                 throw new Error('Data barang atau status tidak valid.');
@@ -6558,7 +6584,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
 
             // Ambil data detail lama dan kunci barisnya
             const currentRows = await q(
-                `SELECT id, produk_id, jumlah, gambar, status
+                `SELECT id, produk_id, jumlah, harga, gambar, status
                  FROM barang_keluar_detail
                  WHERE id = ?
                    AND barang_keluar_id = ?
@@ -6576,6 +6602,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
 
             const oldProdukId = Number(current.produk_id);
             const oldJumlah = Number(current.jumlah);
+            const oldHarga = Number(current.harga ?? 0);
             const oldStatus = Number(current.status ?? 2);
 
             // Hanya status 2 (PROSES) yang mengurangi stok
@@ -6658,6 +6685,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
                 `UPDATE barang_keluar_detail
                  SET produk_id = ?,
                      jumlah = ?,
+                     harga = ?,
                      keterangan = ?,
                      gambar = ?,
                      status = ?
@@ -6666,6 +6694,7 @@ app.post('/barang-keluar/edit/:id', upload.any(), async (req, res) => {
                 [
                     newProdukId,
                     newJumlah,
+                    newHarga,
                     newKet,
                     gambarBaru,
                     newStatus,
@@ -7790,7 +7819,7 @@ app.post('/barang-keluar-alex', async (req, res) => {
       produk_baru,
       jumlah,
       orderan,
-      service,
+      harga,
       keterangan
     } = req.body;
 
@@ -7919,7 +7948,7 @@ app.post('/barang-keluar-alex', async (req, res) => {
         nama_barang,
         jumlah,
         orderan,
-        service,
+        harga,
         keterangan,
         status
       )
@@ -7930,7 +7959,7 @@ app.post('/barang-keluar-alex', async (req, res) => {
       namaBarang,
       parseInt(jumlah) || 0,
       orderan || null,
-      service || null,
+      parseFloat(harga) || 0,
       keterangan || null,
     ]);
 
@@ -7942,6 +7971,307 @@ app.post('/barang-keluar-alex', async (req, res) => {
 
     res.status(500).send(
       'Gagal menyimpan Barang Keluar Alex'
+    );
+
+  }
+
+});
+
+// ======================================================
+// HALAMAN EDIT BARANG KELUAR ALEX
+// ======================================================
+
+app.get('/barang-keluar-alex/:id/edit', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).send('ID tidak valid');
+    }
+
+    // if (!Number.isFinite(newHarga) || newHarga < 0) {
+    //     throw new Error('Harga barang tidak valid.');
+    // }
+
+    const hasil = await q(`
+      SELECT *
+      FROM barang_alex_keluar
+      WHERE id = ?
+      LIMIT 1
+    `, [id]);
+
+    if (!hasil.length) {
+      return res.status(404).send('Data Barang Keluar Alex tidak ditemukan');
+    }
+
+    const produk = await q(`
+      SELECT id, nama
+      FROM produk
+      ORDER BY nama ASC
+    `);
+
+    res.render('barang_keluar_alex_edit', {
+      item: hasil[0],
+      produk
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Gagal membuka halaman edit Barang Keluar Alex');
+  }
+});
+
+// ======================================================
+// UPDATE BARANG KELUAR ALEX + STATUS
+// ======================================================
+
+app.post('/barang-keluar-alex/:id/edit', async (req, res) => {
+
+  let transactionStarted = false;
+
+  try {
+
+    const id = parseInt(req.params.id);
+
+    const {
+      tujuan,
+      produk_id,
+      jumlah,
+      orderan,
+      harga,
+      keterangan,
+      status
+    } = req.body;
+
+    // ======================================
+    // VALIDASI ID
+    // ======================================
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).send('ID tidak valid');
+    }
+
+    // ======================================
+    // VALIDASI INPUT
+    // ======================================
+
+    const jumlahBaru = parseInt(jumlah);
+    const hargaBaru = parseFloat(harga);
+
+    if (!tujuan || !produk_id || !jumlah) {
+      return res.status(400).send(
+        'Tujuan, produk, dan jumlah wajib diisi'
+      );
+    }
+
+    if (!Number.isInteger(jumlahBaru) || jumlahBaru <= 0) {
+      return res.status(400).send('Jumlah tidak valid');
+    }
+
+    if (!Number.isFinite(hargaBaru) || hargaBaru < 0) {
+      return res.status(400).send('Harga tidak valid');
+    }
+
+    const statusValid = [
+      'pending',
+      'masuk_stok',
+      'beres',
+      'cancel'
+    ];
+
+    if (!statusValid.includes(status)) {
+      return res.status(400).send('Status tidak valid');
+    }
+
+    // ======================================
+    // CEK PRODUK
+    // ======================================
+
+    const produk = await q(`
+      SELECT id, nama
+      FROM produk
+      WHERE id = ?
+      LIMIT 1
+    `, [parseInt(produk_id)]);
+
+    if (!produk.length) {
+      return res.status(400).send('Produk tidak ditemukan');
+    }
+
+    // ======================================
+    // MULAI TRANSAKSI
+    // ======================================
+
+    await beginTransaction();
+    transactionStarted = true;
+
+    // ======================================
+    // AMBIL DATA LAMA
+    // ======================================
+
+    const dataLama = await q(`
+      SELECT *
+      FROM barang_alex_keluar
+      WHERE id = ?
+      FOR UPDATE
+    `, [id]);
+
+    if (!dataLama.length) {
+      await rollback();
+      transactionStarted = false;
+
+      return res.status(404).send('Data tidak ditemukan');
+    }
+
+    const itemLama = dataLama[0];
+
+    // ======================================
+    // PROTEKSI DATA YANG SUDAH MASUK STOK
+    // ======================================
+
+    if (itemLama.status === 'masuk_stok') {
+
+      // Status tidak boleh berubah melalui edit
+      if (status !== 'masuk_stok') {
+        await rollback();
+        transactionStarted = false;
+
+        return res.status(400).send(
+          'Barang sudah masuk stok. Status tidak dapat diubah melalui edit.'
+        );
+      }
+
+      // Produk dan jumlah tidak boleh diubah
+      if (
+        parseInt(itemLama.produk_id) !== parseInt(produk_id) ||
+        parseInt(itemLama.jumlah) !== jumlahBaru
+      ) {
+        await rollback();
+        transactionStarted = false;
+
+        return res.status(400).send(
+          'Produk dan jumlah tidak dapat diubah karena barang sudah masuk stok.'
+        );
+      }
+
+    }
+
+    // ======================================
+    // PROSES MASUK STOK JIKA STATUS BERUBAH
+    // ======================================
+
+    if (
+      itemLama.status !== 'masuk_stok' &&
+      status === 'masuk_stok'
+    ) {
+
+      // Update status
+      await q(`
+        UPDATE barang_alex_keluar
+        SET status = 'masuk_stok'
+        WHERE id = ?
+      `, [id]);
+
+      // Buat transaksi barang masuk
+      const bm = await q(`
+        INSERT INTO barang_masuk
+        (
+          pengirim
+        )
+        VALUES (?)
+      `, [
+        tujuan.trim() || 'ALEX'
+      ]);
+
+      // Detail barang masuk
+      await q(`
+        INSERT INTO barang_masuk_detail
+        (
+          barang_masuk_id,
+          produk_id,
+          jumlah,
+          orderan,
+          keterangan
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+        bm.insertId,
+        parseInt(produk_id),
+        jumlahBaru,
+        orderan || null,
+        'AUTO DARI BARANG KELUAR ALEX'
+      ]);
+
+      // Tambahkan stok cabang utama
+      await q(`
+        INSERT INTO stock_cabang
+        (
+          produk_id,
+          cabang_id,
+          jumlah,
+          orderan
+        )
+        VALUES (?, 1, ?, ?)
+
+        ON DUPLICATE KEY UPDATE
+        jumlah = jumlah + VALUES(jumlah)
+      `, [
+        parseInt(produk_id),
+        jumlahBaru,
+        orderan || null
+      ]);
+
+    }
+
+    // ======================================
+    // UPDATE DATA UTAMA
+    // ======================================
+
+    await q(`
+      UPDATE barang_alex_keluar
+      SET
+        tujuan = ?,
+        produk_id = ?,
+        nama_barang = ?,
+        jumlah = ?,
+        orderan = ?,
+        harga = ?,
+        keterangan = ?,
+        status = ?
+      WHERE id = ?
+    `, [
+      tujuan.trim(),
+      parseInt(produk_id),
+      produk[0].nama,
+      jumlahBaru,
+      orderan || null,
+      hargaBaru,
+      keterangan || null,
+      status,
+      id
+    ]);
+
+    // ======================================
+    // COMMIT
+    // ======================================
+
+    await commit();
+    transactionStarted = false;
+
+    res.redirect('/barang-keluar-alex');
+
+  } catch (err) {
+
+    console.error(err);
+
+    if (transactionStarted) {
+      try {
+        await rollback();
+      } catch (e) {}
+    }
+
+    res.status(500).send(
+      'Gagal mengubah data Barang Keluar Alex'
     );
 
   }
@@ -9163,38 +9493,79 @@ app.get('/export/sparepart/pdf', async (req, res) => {
 });
 
 // ==========================================
-// CLAIM GARANSI - PAGINATION 10 DATA
+// CLAIM GARANSI - SEARCH + PAGINATION 10 DATA
 // ==========================================
 app.get('/claim-garansi', async (req, res) => {
     try {
         const limit = 10;
+
         let page = parseInt(req.query.page, 10) || 1;
         if (page < 1) page = 1;
 
-        // Hitung seluruh data claim
+        // Kata kunci pencarian
+        const search = (req.query.search || '').trim();
+
+        // Kondisi pencarian
+        let whereSQL = '';
+        let searchParams = [];
+
+        if (search !== '') {
+            whereSQL = `
+                WHERE
+                    COALESCE(p.kode_produk, '') LIKE ?
+                    OR COALESCE(p.nama, '') LIKE ?
+                    OR COALESCE(cg.customer, '') LIKE ?
+                    OR COALESCE(cg.keluhan, '') LIKE ?
+                    OR COALESCE(cg.status, '') LIKE ?
+            `;
+
+            const keyword = `%${search}%`;
+
+            searchParams = [
+                keyword,
+                keyword,
+                keyword,
+                keyword,
+                keyword
+            ];
+        }
+
+        // Hitung data berdasarkan pencarian
         const countResult = await q(`
             SELECT COUNT(*) AS total
-            FROM claim_garansi
-        `);
+            FROM claim_garansi cg
+            LEFT JOIN produk p ON p.id = cg.produk_id
+            ${whereSQL}
+        `, searchParams);
 
         const totalData = Number(countResult[0].total) || 0;
         const totalPages = Math.ceil(totalData / limit);
-        if (totalPages > 0 && page > totalPages) page = totalPages;
+
+        if (totalPages > 0 && page > totalPages) {
+            page = totalPages;
+        }
 
         const offset = (page - 1) * limit;
 
-        // Ambil hanya 10 data sesuai halaman
+        // Ambil data claim sesuai pencarian dan pagination
         const claimList = await q(`
-            SELECT cg.*, p.nama AS nama_produk, p.kode_produk
+            SELECT
+                cg.*,
+                p.nama AS nama_produk,
+                p.kode_produk
             FROM claim_garansi cg
             LEFT JOIN produk p ON p.id = cg.produk_id
+            ${whereSQL}
             ORDER BY cg.created_at DESC
             LIMIT ${limit} OFFSET ${offset}
-        `);
+        `, searchParams);
 
         // Data produk untuk form input tetap ditampilkan seluruhnya
         const produk = await q(`
-            SELECT p.id, p.kode_produk, p.nama,
+            SELECT
+                p.id,
+                p.kode_produk,
+                p.nama,
                 COALESCE(jkt.jumlah,0) AS stok_jakarta,
                 COALESCE(smg.jumlah,0) AS stok_semarang
             FROM produk p
@@ -9213,7 +9584,8 @@ app.get('/claim-garansi', async (req, res) => {
             path: '/claim-garansi',
             currentPage: page,
             totalPages,
-            totalData
+            totalData,
+            search
         });
 
     } catch (err) {
