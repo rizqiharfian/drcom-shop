@@ -291,29 +291,170 @@
                 </button>
             </div>
         </div>
+        <!-- EXPORT PDF BARANG KELUAR ALEX -->
         <div class="d-flex justify-content-end mb-3">
-          <div class="btn-group">
-            <button class="btn btn-danger dropdown-toggle" data-bs-toggle="dropdown">Export PDF</button>
 
-            <ul class="dropdown-menu dropdown-menu-end">
+            <button type="button"
+                class="btn btn-danger"
+                data-bs-toggle="modal"
+                data-bs-target="#modalExportAlex">
 
-              <li><a class="dropdown-item" href="/export/barang-keluar-alex">Semua Data</a></li>
-              <li><a class="dropdown-item" onclick="exportHari()" href="#">Hari Ini</a></li>
-              <li><a class="dropdown-item" onclick="exportMinggu()" href="#">Minggu Ini</a></li>
-              <li><a class="dropdown-item" onclick="exportBulan()" href="#">Bulan Ini</a></li>
-              <li>
-                <hr class="dropdown-divider">
-              </li>
+                <i class="bi bi-file-earmark-pdf"></i>
+                Export PDF
 
-              <li class="px-3">
-                <label>Dari</label>
-                <input type="date" id="tglAwal" class="form-control form-control-sm mb-2">
-                <label>Sampai</label>
-                <input type="date" id="tglAkhir" class="form-control form-control-sm mb-2">
-                <button type="button" class="btn btn-primary btn-sm w-100" onclick="exportCustom()">Export</button>
-              </li>
-            </ul>
-          </div>
+            </button>
+
+        </div>
+
+        <!-- MODAL EXPORT -->
+        <div class="modal fade" id="modalExportAlex" tabindex="-1">
+
+            <div class="modal-dialog">
+
+                <div class="modal-content">
+
+                    <div class="modal-header bg-danger text-white">
+
+                        <h5 class="modal-title">
+                            Export PDF Barang Keluar Alex
+                        </h5>
+
+                        <button
+                            type="button"
+                            class="btn-close btn-close-white"
+                            data-bs-dismiss="modal">
+                        </button>
+
+                    </div>
+
+                    <div class="modal-body">
+
+                        <!-- SUPPLIER / TUJUAN -->
+                        <div class="mb-3">
+
+                            <label class="form-label">
+                                Supplier / Tujuan
+                            </label>
+
+                            <select
+                                id="supplierExportAlex"
+                                class="form-select">
+
+                                <option value="">
+                                    Semua Supplier / Tujuan
+                                </option>
+
+                                <% if (typeof daftarTujuanAlex !== 'undefined' && daftarTujuanAlex) { %>
+
+                                    <% daftarTujuanAlex.forEach(s => { %>
+
+                                        <option value="<%= s.tujuan %>">
+                                            <%= s.tujuan %>
+                                        </option>
+
+                                    <% }) %>
+
+                                <% } %>
+
+                            </select>
+
+                        </div>
+
+                        <!-- PERIODE -->
+                        <div class="mb-3">
+
+                            <label class="form-label">
+                                Periode Export
+                            </label>
+
+                            <select
+                                id="periodeExportAlex"
+                                class="form-select">
+
+                                <option value="semua">
+                                    Semua Data
+                                </option>
+
+                                <option value="hari">
+                                    Hari Ini
+                                </option>
+
+                                <option value="minggu">
+                                    7 Hari Terakhir
+                                </option>
+
+                                <option value="bulan">
+                                    Bulan Ini
+                                </option>
+
+                                <option value="custom">
+                                    Tanggal Custom
+                                </option>
+
+                            </select>
+
+                        </div>
+
+                        <!-- CUSTOM DATE -->
+                        <div id="customTanggalAlex" style="display:none">
+
+                            <div class="mb-3">
+
+                                <label class="form-label">
+                                    Dari Tanggal
+                                </label>
+
+                                <input
+                                    type="date"
+                                    id="tglAwalAlex"
+                                    class="form-control">
+
+                            </div>
+
+                            <div class="mb-3">
+
+                                <label class="form-label">
+                                    Sampai Tanggal
+                                </label>
+
+                                <input
+                                    type="date"
+                                    id="tglAkhirAlex"
+                                    class="form-control">
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="modal-footer">
+
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            data-bs-dismiss="modal">
+
+                            Tutup
+
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn btn-danger"
+                            onclick="prosesExportAlex()">
+
+                            <i class="bi bi-file-earmark-pdf"></i>
+                            Export PDF
+
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </div>
+
         </div>
         <div class="table-responsive">
         <table id="tabelBarangAlex" class="table table-bordered table-hover align-middle tabel-alex">
@@ -489,92 +630,134 @@
   </script>
   <script>
 
-    function formatDate(date) {
+    // ======================================================
+    // EXPORT PDF BARANG KELUAR ALEX
+    // ======================================================
 
-      return date
-        .toISOString()
-        .split('T')[0];
+    document.getElementById('periodeExportAlex')
+        .addEventListener('change', function() {
+
+            const custom = document.getElementById('customTanggalAlex');
+
+            if (this.value === 'custom') {
+                custom.style.display = 'block';
+            } else {
+                custom.style.display = 'none';
+            }
+
+        });
+
+
+    // ======================================================
+    // PROSES EXPORT
+    // ======================================================
+
+    function prosesExportAlex() {
+
+        const supplier = document.getElementById('supplierExportAlex').value;
+        const periode = document.getElementById('periodeExportAlex').value;
+
+        let url = '/export/barang-keluar-alex';
+
+        const params = new URLSearchParams();
+
+        // Filter supplier
+        if (supplier) {
+            params.set('supplier', supplier);
+        }
+
+        // Semua data
+        if (periode === 'semua') {
+
+            // Tidak perlu filter tanggal
+
+        }
+
+        // Hari ini
+        else if (periode === 'hari') {
+
+            const today = new Date();
+
+            const tanggal = formatDateAlex(today);
+
+            params.set('start', tanggal);
+            params.set('end', tanggal);
+
+        }
+
+        // 7 hari terakhir
+        else if (periode === 'minggu') {
+
+            const today = new Date();
+            const first = new Date();
+
+            first.setDate(today.getDate() - 6);
+
+            params.set('start', formatDateAlex(first));
+            params.set('end', formatDateAlex(today));
+
+        }
+
+        // Bulan ini
+        else if (periode === 'bulan') {
+
+            const today = new Date();
+
+            const first = new Date(
+                today.getFullYear(),
+                today.getMonth(),
+                1
+            );
+
+            params.set('start', formatDateAlex(first));
+            params.set('end', formatDateAlex(today));
+
+        }
+
+        // Custom
+        else if (periode === 'custom') {
+
+            const start = document.getElementById('tglAwalAlex').value;
+            const end = document.getElementById('tglAkhirAlex').value;
+
+            if (!start || !end) {
+                alert('Silakan pilih tanggal awal dan akhir.');
+                return;
+            }
+
+            if (start > end) {
+                alert('Tanggal awal tidak boleh melebihi tanggal akhir.');
+                return;
+            }
+
+            params.set('start', start);
+            params.set('end', end);
+
+        }
+
+        const query = params.toString();
+
+        if (query) {
+            url += '?' + query;
+        }
+
+        window.open(url, '_blank');
 
     }
 
-    // =====================
-    // HARI INI
-    // =====================
 
-    function exportHari() {
+    // ======================================================
+    // FORMAT TANGGAL
+    // ======================================================
 
-      const today = formatDate(
-        new Date()
-      );
+    function formatDateAlex(date) {
 
-      window.open(
-        `/export/barang-keluar-alex?start=${today}&end=${today}`,
-        '_blank'
-      );
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
 
-    }
+        return `${year}-${month}-${day}`;
 
-    // =====================
-    // MINGGU INI
-    // =====================
-
-    function exportMinggu() {
-
-      const today = new Date();
-
-      const first = new Date();
-
-      first.setDate(
-        today.getDate() - 7
-      );
-
-      window.open(
-        `/export/barang-keluar-alex?start=${formatDate(first)}&end=${formatDate(today)}`,
-        '_blank'
-      );
-
-    }
-
-    // =====================
-    // BULAN INI
-    // =====================
-
-    function exportBulan() {
-
-      const today = new Date();
-
-      const first = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        1
-      );
-
-      window.open(
-        `/export/barang-keluar-alex?start=${formatDate(first)}&end=${formatDate(today)}`,
-        '_blank'
-      );
-
-    }
-
-    // =====================
-    // CUSTOM
-    // =====================
-
-    function exportCustom() {
-      const start =
-        document.getElementById('tglAwal').value;
-
-      const end =
-        document.getElementById('tglAkhir').value;
-
-      if (!start || !end) {
-        alert('Pilih tanggal terlebih dahulu');
-        return;
-      }
-      window.open(
-        `/export/barang-keluar-alex?start=${start}&end=${end}`,
-        '_blank'
-      );
     }
 
     // ==========================================

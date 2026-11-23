@@ -7793,9 +7793,18 @@ app.get('/barang-keluar-alex', async (req, res) => {
         a.created_at DESC
     `);
 
+    const daftarTujuanAlex = await q(`
+      SELECT DISTINCT tujuan
+      FROM barang_alex_keluar
+      WHERE tujuan IS NOT NULL
+        AND tujuan <> ''
+      ORDER BY tujuan ASC
+    `);
+
     res.render('barang_keluar_alex', {
       produk,
-      data
+      data,
+      daftarTujuanAlex
     });
 
   } catch (err) {
@@ -8436,27 +8445,61 @@ app.post('/barang-keluar-alex/:id/cancel', async (req, res) => {
 
 // ======================================================
 // EXPORT PDF BARANG KELUAR ALEX
+// FILTER SUPPLIER / TUJUAN DAN PERIODE
 // ======================================================
 
 app.get('/export/barang-keluar-alex', async (req, res) => {
 
   try {
 
-    const { start, end } = req.query;
+    const { start, end, supplier } = req.query;
 
-    let where = '';
+    let conditions = [];
     let params = [];
+
+    // ======================================
+    // FILTER SUPPLIER / TUJUAN
+    // ======================================
+
+    if (supplier && supplier.trim() !== '') {
+
+      conditions.push('a.tujuan = ?');
+      params.push(supplier.trim());
+
+    }
+
+    // ======================================
+    // FILTER TANGGAL
+    // ======================================
 
     if (start && end) {
 
-      where = `
-        WHERE DATE(a.created_at)
+      conditions.push(`
+        DATE(a.created_at)
         BETWEEN ? AND ?
-      `;
+      `);
 
       params.push(start, end);
 
+    } else if (start || end) {
+
+      return res.status(400).send(
+        'Tanggal awal dan akhir harus diisi bersamaan.'
+      );
+
     }
+
+    // ======================================
+    // WHERE
+    // ======================================
+
+    const where = conditions.length
+      ? 'WHERE ' + conditions.join(' AND ')
+      : '';
+
+    // ======================================
+    // AMBIL DATA
+    // ======================================
 
     const rows = await q(`
       SELECT
@@ -8467,14 +8510,18 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
         ON p.id = a.produk_id
       ${where}
       ORDER BY
-      CASE
-        WHEN a.status = 'pending' THEN 0
-        WHEN a.status = 'masuk_stok' THEN 1
-        WHEN a.status = 'beres' THEN 2
-        ELSE 3
-      END,
-      a.created_at DESC
+        CASE
+          WHEN a.status = 'pending' THEN 0
+          WHEN a.status = 'masuk_stok' THEN 1
+          WHEN a.status = 'beres' THEN 2
+          ELSE 3
+        END,
+        a.created_at DESC
     `, params);
+
+    // ======================================
+    // PDF
+    // ======================================
 
     const doc = new PDFDocument({
       size: 'A4',
@@ -8494,9 +8541,9 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
     doc.pipe(res);
 
-    // =====================================
+    // ======================================
     // HEADER
-    // =====================================
+    // ======================================
 
     doc
       .fontSize(18)
@@ -8509,12 +8556,36 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
     doc.moveDown(0.5);
 
+    // SUPPLIER
+
+    doc
+      .fontSize(11)
+      .text(
+        `Supplier / Tujuan : ${supplier || 'SEMUA SUPPLIER'} `,
+        {
+          align: 'center'
+        }
+      );
+
+    // PERIODE
+
     if (start && end) {
 
       doc
         .fontSize(10)
         .text(
           `Periode : ${start} s/d ${end}`,
+          {
+            align: 'center'
+          }
+        );
+
+    } else {
+
+      doc
+        .fontSize(10)
+        .text(
+          'Periode : Semua Data',
           {
             align: 'center'
           }
@@ -8535,10 +8606,18 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
 
     doc.moveDown();
 
+    // ======================================
+    // TOTAL
+    // ======================================
+
     let totalBarang = 0;
+    let totalHarga = 0;
 
     rows.forEach(item => {
+
       totalBarang += Number(item.jumlah || 0);
+      totalHarga += Number(item.harga || 0);
+
     });
 
     doc
@@ -8549,30 +8628,43 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
       .fontSize(11)
       .text(`Total Qty : ${totalBarang}`);
 
+    doc
+      .fontSize(11)
+      .text(
+        `Total Harga : Rp ${totalHarga.toLocaleString('id-ID')}`
+      );
+
     doc.moveDown();
 
-    // =====================================
+    // ======================================
     // HEADER TABEL
-    // =====================================
+    // ======================================
 
     let y = doc.y;
 
     const rowHeight = 22;
 
-    doc.rect(20, y, 780, rowHeight).stroke();
+    function drawHeader() {
 
-    doc.text('No', 25, y + 6);
-    doc.text('Tujuan', 55, y + 6);
-    doc.text('Produk', 180, y + 6);
-    doc.text('Qty', 500, y + 6);
-    doc.text('Status', 560, y + 6);
-    doc.text('Tanggal', 650, y + 6);
+      doc.rect(20, y, 780, rowHeight).stroke();
 
-    y += rowHeight;
+      doc.text('No', 25, y + 6);
+      doc.text('Tujuan', 55, y + 6);
+      doc.text('Produk', 180, y + 6);
+      doc.text('Qty', 500, y + 6);
+      doc.text('Harga', 540, y + 6);
+      doc.text('Status', 630, y + 6);
+      doc.text('Tanggal', 700, y + 6);
 
-    // =====================================
+      y += rowHeight;
+
+    }
+
+    drawHeader();
+
+    // ======================================
     // DATA
-    // =====================================
+    // ======================================
 
     rows.forEach((r, index) => {
 
@@ -8581,42 +8673,34 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
         r.nama_barang ||
         '-';
 
-      // hitung tinggi teks produk
       const tinggiProduk = doc.heightOfString(
         namaProduk,
         {
-          width: 280
+          width: 300
         }
       );
 
-      // tinggi row otomatis
       const currentRowHeight =
-        Math.max(
-          tinggiProduk,
-          18
-        ) + 10;
+        Math.max(tinggiProduk, 18) + 10;
 
-      // pindah halaman jika hampir habis
+      // ======================================
+      // PAGE BREAK
+      // ======================================
+
       if (y + currentRowHeight > 540) {
 
         doc.addPage();
 
         y = 40;
 
-        doc.rect(20, y, 780, 22).stroke();
-
-        doc.text('No', 25, y + 6);
-        doc.text('Tujuan', 55, y + 6);
-        doc.text('Produk', 180, y + 6);
-        doc.text('Qty', 500, y + 6);
-        doc.text('Status', 560, y + 6);
-        doc.text('Tanggal', 650, y + 6);
-
-        y += 22;
+        drawHeader();
 
       }
 
-      // garis row
+      // ======================================
+      // ROW
+      // ======================================
+
       doc.rect(
         20,
         y,
@@ -8655,31 +8739,44 @@ app.get('/export/barang-keluar-alex', async (req, res) => {
       );
 
       doc.text(
-        r.status || '-',
-        560,
-        y + 5
+        `Rp ${Number(r.harga || 0).toLocaleString('id-ID')}`,
+        540,
+        y + 5,
+        {
+          width: 85
+        }
       );
 
       doc.text(
-        new Date(
-          r.created_at
-        ).toLocaleDateString('id-ID'),
-        650,
-        y + 5
+        r.status || '-',
+        630,
+        y + 5,
+        {
+          width: 65
+        }
+      );
+
+      doc.text(
+        new Date(r.created_at).toLocaleDateString('id-ID'),
+        700,
+        y + 5,
+        {
+          width: 95
+        }
       );
 
       y += currentRowHeight;
 
     });
 
-    // =====================================
+    // ======================================
     // FOOTER
-    // =====================================
+    // ======================================
 
     doc.moveDown(2);
 
     doc.text(
-      `Dicetak oleh Admin DR.COM`,
+      'Dicetak oleh Admin DR.COM',
       {
         align: 'right'
       }
@@ -9489,6 +9586,672 @@ app.get('/export/sparepart/pdf', async (req, res) => {
     );
 
   }
+
+});
+
+// =========================================
+// MASTER SPAREPART JAKARTA
+// =========================================
+
+app.get('/sparepart-jakarta', async (req, res) => {
+
+    try {
+
+        const keyword = (req.query.keyword || '').trim();
+        const awal = req.query.awal || '';
+        const akhir = req.query.akhir || '';
+
+        let sql = `
+            SELECT *
+            FROM sparepart_jakarta
+            WHERE 1=1
+        `;
+
+        let params = [];
+
+        // PENCARIAN
+        if (keyword !== '') {
+
+            sql += `
+                AND (
+                    kode_sparepart LIKE ?
+                    OR nama LIKE ?
+                    OR kategori LIKE ?
+                    OR posisi LIKE ?
+                )
+            `;
+
+            params.push(
+                `%${keyword}%`,
+                `%${keyword}%`,
+                `%${keyword}%`,
+                `%${keyword}%`
+            );
+
+        }
+
+        // FILTER TANGGAL
+        if (awal && akhir) {
+
+            sql += `
+                AND DATE(created_at)
+                BETWEEN ? AND ?
+            `;
+
+            params.push(awal, akhir);
+
+        }
+
+        sql += `
+            ORDER BY id ASC
+        `;
+
+        const sparepart = await q(sql, params);
+
+        res.render('sparepart_jakarta', {
+            sparepart,
+            path: req.path
+        });
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send('Gagal membuka data sparepart Jakarta');
+
+    }
+
+});
+
+// ======================================
+// FORM TAMBAH SPAREPART JAKARTA
+// ======================================
+
+app.get('/sparepart-jakarta/tambah', async (req, res) => {
+
+    try {
+
+        res.render('sparepart_jakarta_tambah');
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send("Gagal membuka form.");
+
+    }
+
+});
+
+// ======================================
+// SIMPAN SPAREPART JAKARTA
+// ======================================
+
+app.post('/sparepart-jakarta/tambah', upload.single('gambar'), async (req, res) => {
+
+    try {
+
+        const {
+            nama,
+            kategori,
+            harga_modal,
+            harga_jual,
+            stok,
+            posisi,
+            keterangan
+        } = req.body;
+
+        // GENERATE KODE
+        const last = await q(`
+            SELECT kode_sparepart
+            FROM sparepart_jakarta
+            ORDER BY id DESC
+            LIMIT 1
+        `);
+
+        let kode = "SP0001";
+
+        if (last.length) {
+
+            const no = parseInt(
+                last[0].kode_sparepart.replace("SP", "")
+            ) || 0;
+
+            kode = "SP" + String(no + 1).padStart(4, "0");
+
+        }
+
+        const gambar = req.file
+            ? req.file.filename
+            : null;
+
+        // INSERT
+        await q(`
+            INSERT INTO sparepart_jakarta (
+                kode_sparepart,
+                nama,
+                kategori,
+                harga_modal,
+                harga_jual,
+                stok,
+                posisi,
+                keterangan,
+                gambar
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+
+            kode,
+            nama,
+            kategori,
+            harga_modal || 0,
+            harga_jual || 0,
+            stok || 0,
+            posisi || "",
+            keterangan || "",
+            gambar
+
+        ]);
+
+        res.redirect("/sparepart-jakarta");
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send("Gagal menyimpan sparepart Jakarta.");
+
+    }
+
+});
+
+// ======================================
+// FORM EDIT SPAREPART JAKARTA
+// ======================================
+
+app.get('/sparepart-jakarta/edit/:id', async (req, res) => {
+
+    try {
+
+        const id = parseInt(req.params.id);
+
+        const rows = await q(`
+            SELECT *
+            FROM sparepart_jakarta
+            WHERE id = ?
+            LIMIT 1
+        `, [id]);
+
+        if (!rows.length) {
+
+            return res.status(404).send("Sparepart Jakarta tidak ditemukan.");
+
+        }
+
+        res.render("sparepart_jakarta_edit", {
+            sparepart: rows[0]
+        });
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send("Gagal membuka halaman edit.");
+
+    }
+
+});
+
+// ======================================
+// UPDATE SPAREPART JAKARTA
+// ======================================
+
+app.post('/sparepart-jakarta/edit/:id', upload.single('gambar'), async (req, res) => {
+
+    try {
+
+        const id = parseInt(req.params.id);
+
+        const {
+            nama,
+            kategori,
+            harga_modal,
+            harga_jual,
+            stok,
+            posisi,
+            keterangan
+        } = req.body;
+
+        const lama = await q(`
+            SELECT gambar
+            FROM sparepart_jakarta
+            WHERE id = ?
+            LIMIT 1
+        `, [id]);
+
+        if (!lama.length) {
+
+            return res.status(404).send("Data tidak ditemukan.");
+
+        }
+
+        let gambar = lama[0].gambar;
+
+        // UPLOAD GAMBAR BARU
+        if (req.file) {
+
+            gambar = req.file.filename;
+
+            // HAPUS GAMBAR LAMA
+            if (lama[0].gambar) {
+
+                const oldPath = path.join(
+                    __dirname,
+                    "media",
+                    lama[0].gambar
+                );
+
+                if (fs.existsSync(oldPath)) {
+
+                    fs.unlinkSync(oldPath);
+
+                }
+
+            }
+
+        }
+
+        await q(`
+            UPDATE sparepart_jakarta
+            SET
+                nama = ?,
+                kategori = ?,
+                harga_modal = ?,
+                harga_jual = ?,
+                stok = ?,
+                posisi = ?,
+                keterangan = ?,
+                gambar = ?
+            WHERE id = ?
+        `, [
+
+            nama,
+            kategori,
+            harga_modal || 0,
+            harga_jual || 0,
+            stok || 0,
+            posisi || "",
+            keterangan || "",
+            gambar,
+            id
+
+        ]);
+
+        res.redirect("/sparepart-jakarta");
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send("Gagal mengupdate sparepart Jakarta.");
+
+    }
+
+});
+
+// ======================================
+// DETAIL SPAREPART JAKARTA
+// ======================================
+
+app.get('/sparepart-jakarta/:id', async (req, res) => {
+
+    try {
+
+        const id = parseInt(req.params.id);
+
+        const rows = await q(`
+            SELECT *
+            FROM sparepart_jakarta
+            WHERE id = ?
+            LIMIT 1
+        `, [id]);
+
+        if (!rows.length) {
+
+            return res.status(404).send("Sparepart Jakarta tidak ditemukan.");
+
+        }
+
+        res.render("sparepart_jakarta_detail", {
+            sparepart: rows[0]
+        });
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).send("Gagal membuka detail sparepart Jakarta.");
+
+    }
+
+});
+
+// ======================================
+// DELETE SPAREPART JAKARTA
+// ======================================
+
+app.post('/sparepart-jakarta/delete/:id', async (req, res) => {
+
+    try {
+
+        const { id } = req.params;
+
+        await q(
+            'DELETE FROM sparepart_jakarta WHERE id = ?',
+            [id]
+        );
+
+        res.redirect('/sparepart-jakarta');
+
+    } catch (err) {
+
+        console.error('Gagal hapus sparepart Jakarta:', err);
+
+        res.status(500).send('Gagal menghapus data sparepart Jakarta');
+
+    }
+
+});
+
+// =========================================
+// EXPORT PDF SPAREPART JAKARTA
+// =========================================
+
+app.get('/export/sparepart-jakarta/pdf', async (req, res) => {
+
+    try {
+
+        const sparepart = await q(`
+            SELECT *
+            FROM sparepart_jakarta
+            ORDER BY id ASC
+        `);
+
+        const PDFDocument = require('pdfkit');
+
+        const doc = new PDFDocument({
+            size: 'A4',
+            layout: 'landscape',
+            margin: 30
+        });
+
+        res.setHeader(
+            'Content-Type',
+            'application/pdf'
+        );
+
+        res.setHeader(
+            'Content-Disposition',
+            'inline; filename=sparepart_jakarta.pdf'
+        );
+
+        doc.pipe(res);
+
+        // =================================
+        // HEADER
+        // =================================
+
+        doc
+            .fontSize(18)
+            .font('Helvetica-Bold')
+            .text('MASTER SPAREPART JAKARTA', {
+                align: 'center'
+            });
+
+        doc.moveDown(0.5);
+
+        doc
+            .fontSize(10)
+            .font('Helvetica')
+            .text('Laporan Data Sparepart Jakarta', {
+                align: 'center'
+            });
+
+        doc.moveDown(1);
+
+        doc
+            .fontSize(9)
+            .text(
+                'Tanggal Cetak: ' +
+                new Date().toLocaleDateString('id-ID'),
+                {
+                    align: 'right'
+                }
+            );
+
+        doc.moveDown(1);
+
+        // =================================
+        // TABEL
+        // =================================
+
+        const startX = 30;
+        let y = doc.y;
+
+        const widths = {
+            no: 35,
+            kode: 85,
+            nama: 180,
+            kategori: 100,
+            modal: 100,
+            jual: 100,
+            stok: 50,
+            posisi: 100
+        };
+
+        const rowHeight = 25;
+
+        function drawHeader() {
+
+            doc.font('Helvetica-Bold')
+                .fontSize(9);
+
+            doc.rect(
+                startX,
+                y,
+                750,
+                rowHeight
+            ).fill('#343a40');
+
+            doc.fillColor('white');
+
+            let x = startX;
+
+            doc.text('No', x + 5, y + 8, {
+                width: widths.no
+            });
+
+            x += widths.no;
+
+            doc.text('Kode', x + 5, y + 8, {
+                width: widths.kode
+            });
+
+            x += widths.kode;
+
+            doc.text('Nama Sparepart', x + 5, y + 8, {
+                width: widths.nama
+            });
+
+            x += widths.nama;
+
+            doc.text('Kategori', x + 5, y + 8, {
+                width: widths.kategori
+            });
+
+            x += widths.kategori;
+
+            doc.text('Modal', x + 5, y + 8, {
+                width: widths.modal
+            });
+
+            x += widths.modal;
+
+            doc.text('Harga Jual', x + 5, y + 8, {
+                width: widths.jual
+            });
+
+            x += widths.jual;
+
+            doc.text('Stok', x + 5, y + 8, {
+                width: widths.stok
+            });
+
+            x += widths.stok;
+
+            doc.text('Posisi', x + 5, y + 8, {
+                width: widths.posisi
+            });
+
+            doc.fillColor('black');
+
+            y += rowHeight;
+
+        }
+
+        drawHeader();
+
+        // =================================
+        // DATA
+        // =================================
+
+        doc.font('Helvetica')
+            .fontSize(8);
+
+        sparepart.forEach((s, index) => {
+
+            // PAGE BREAK
+            if (y + rowHeight > 550) {
+
+                doc.addPage();
+
+                y = 30;
+
+                drawHeader();
+
+            }
+
+            // ROW BACKGROUND
+            if (index % 2 === 0) {
+
+                doc.rect(
+                    startX,
+                    y,
+                    750,
+                    rowHeight
+                ).fill('#f2f2f2');
+
+            }
+
+            doc.fillColor('black');
+
+            let x = startX;
+
+            doc.text(String(index + 1), x + 5, y + 8, {
+                width: widths.no
+            });
+
+            x += widths.no;
+
+            doc.text(s.kode_sparepart || '-', x + 5, y + 8, {
+                width: widths.kode
+            });
+
+            x += widths.kode;
+
+            doc.text(s.nama || '-', x + 5, y + 8, {
+                width: widths.nama
+            });
+
+            x += widths.nama;
+
+            doc.text(s.kategori || '-', x + 5, y + 8, {
+                width: widths.kategori
+            });
+
+            x += widths.kategori;
+
+            doc.text(
+                'Rp ' + Number(s.harga_modal || 0).toLocaleString('id-ID'),
+                x + 5,
+                y + 8,
+                {
+                    width: widths.modal
+                }
+            );
+
+            x += widths.modal;
+
+            doc.text(
+                'Rp ' + Number(s.harga_jual || 0).toLocaleString('id-ID'),
+                x + 5,
+                y + 8,
+                {
+                    width: widths.jual
+                }
+            );
+
+            x += widths.jual;
+
+            doc.text(String(s.stok || 0), x + 5, y + 8, {
+                width: widths.stok
+            });
+
+            x += widths.stok;
+
+            doc.text(s.posisi || '-', x + 5, y + 8, {
+                width: widths.posisi
+            });
+
+            // BORDER ROW
+            doc.rect(
+                startX,
+                y,
+                750,
+                rowHeight
+            ).stroke('#cccccc');
+
+            y += rowHeight;
+
+        });
+
+        // =================================
+        // FOOTER
+        // =================================
+
+        doc.moveDown(2);
+
+        doc
+            .fontSize(9)
+            .text(
+                'Total Data: ' + sparepart.length + ' Sparepart',
+                30,
+                y + 10
+            );
+
+        doc.end();
+
+    } catch (err) {
+
+        console.error('Export PDF Sparepart Jakarta:', err);
+
+        if (!res.headersSent) {
+
+            res.status(500).send('Gagal export PDF Sparepart Jakarta');
+
+        }
+
+    }
 
 });
 
